@@ -132,7 +132,7 @@ export const CodeMatrixBrowser: React.FC<CodeMatrixBrowserProps> = ({
                     className="px-3 py-3 text-center font-semibold text-zinc-700 dark:text-zinc-300 min-w-[100px]"
                   >
                     <div className="font-bold text-zinc-900 dark:text-zinc-100">
-                      Proband {doc.respondentInfo.code}
+                      Interview {doc.respondentInfo.code}
                     </div>
                     <div className="text-[10px] font-normal text-zinc-400">
                       AMK Erhebung
@@ -296,7 +296,7 @@ export const CodeMatrixBrowser: React.FC<CodeMatrixBrowserProps> = ({
                   >
                     <div className="flex items-center justify-between text-[11px] text-zinc-400">
                       <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-                        Proband {doc?.respondentInfo.code}
+                        Interview {doc?.respondentInfo.code}
                       </span>
                       <span className="font-mono tabular-nums">Absatz P{seg.paragraphIndex}</span>
                     </div>

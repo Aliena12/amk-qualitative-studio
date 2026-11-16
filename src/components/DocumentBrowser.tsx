@@ -16,8 +16,7 @@ import {
   ZoomOut,
   Info,
   Check,
-  ChevronRight,
-  Filter,
+  Pencil,
 } from 'lucide-react';
 
 interface DocumentBrowserProps {
@@ -30,6 +29,8 @@ interface DocumentBrowserProps {
   onDeleteSegment: (segmentId: string) => void;
   onEditSegment: (updatedSegment: CodedSegment) => void;
   onAddManualSegment: (segment: Omit<CodedSegment, 'id'>) => void;
+  onAddCode: (code: Partial<Code>) => string;
+  onEditDocument: () => void;
 }
 
 export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
@@ -42,6 +43,8 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
   onDeleteSegment,
   onEditSegment,
   onAddManualSegment,
+  onAddCode,
+  onEditDocument,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [fontSize, setFontSize] = useState<'sm' | 'base' | 'lg'>('base');
@@ -62,6 +65,11 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
     rect: DOMRect | null;
   } | null>(null);
   const [manualCodeId, setManualCodeId] = useState<string>(codes[0]?.id || '');
+  // Neuen Code direkt beim Markieren anlegen
+  const [newCodeName, setNewCodeName] = useState('');
+  const [newCodeCat, setNewCodeCat] = useState('');
+  const NEW = '__new__';
+  const effectiveCodeId = manualCodeId === NEW || codes.some((c) => c.id === manualCodeId) ? manualCodeId : codes[0]?.id || NEW;
 
   const codeMap = new Map(codes.map((c) => [c.id, c]));
   const catMap = new Map(categories.map((c) => [c.id, c]));
@@ -94,31 +102,43 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
     const range = selection.getRangeAt(0);
     const rect = range.getBoundingClientRect();
     const para = document.paragraphs.find((p) => p.index === paragraphIndex);
-    if (!para) return;
+    if (!para || para.speaker === 'System') return;
 
+    // Die Auswahl muss exakt im Text dieses Absatzes stehen (nicht über mehrere Absätze hinweg)
     const startIndex = para.text.indexOf(selectedText);
-    const endIndex = startIndex !== -1 ? startIndex + selectedText.length : selectedText.length;
+    if (startIndex === -1) {
+      setSelectedTextData(null);
+      return;
+    }
 
     setSelectedTextData({
       text: selectedText,
       paragraphIndex,
-      startIndex: startIndex !== -1 ? startIndex : 0,
-      endIndex,
+      startIndex,
+      endIndex: startIndex + selectedText.length,
       rect,
     });
   };
 
   const handleApplyManualCode = () => {
-    if (!selectedTextData || !manualCodeId) return;
+    if (!selectedTextData) return;
+    let codeId = effectiveCodeId;
+    if (codeId === NEW) {
+      if (!newCodeName.trim() || !(newCodeCat || categories[0])) return;
+      const cat = categories.find((c) => c.id === (newCodeCat || categories[0].id));
+      codeId = onAddCode({ name: newCodeName.trim(), categoryId: cat?.id, color: cat?.color });
+      setManualCodeId(codeId);
+      setNewCodeName('');
+    }
 
     onAddManualSegment({
       documentId: document.id,
-      codeId: manualCodeId,
+      codeId,
       paragraphIndex: selectedTextData.paragraphIndex,
       exactQuote: selectedTextData.text,
       startIndex: selectedTextData.startIndex,
       endIndex: selectedTextData.endIndex,
-      comment: 'Händisch codiert',
+      comment: '',
       confidence: 1.0,
     });
 
@@ -148,6 +168,8 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
     setEditingSegment(null);
   };
 
+  const matches = (p: { text: string }) => !searchTerm.trim() || p.text.toLowerCase().includes(searchTerm.trim().toLowerCase());
+
   const fontSizeClass = {
     sm: 'text-xs leading-relaxed',
     base: 'text-sm leading-relaxed',
@@ -167,9 +189,18 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
               {document.title}
             </h2>
             <div className="text-[11px] text-zinc-400 truncate">
-              {document.respondentInfo.fieldOfStudy} · Dauer: {document.respondentInfo.duration}
+              {[
+                document.respondentInfo.fieldOfStudy,
+                document.respondentInfo.interviewDate,
+                document.respondentInfo.duration && `Dauer: ${document.respondentInfo.duration}`,
+              ]
+                .filter(Boolean)
+                .join(' · ') || 'Rolle, Datum und Dauer fehlen noch – über den Stift ergänzen'}
             </div>
           </div>
+          <button onClick={onEditDocument} className="p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer shrink-0" title="Interview-Daten und Sprecher bearbeiten">
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         {/* Search & Font Controls */}
@@ -212,7 +243,13 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
       <div className="flex-1 overflow-hidden flex divide-x divide-zinc-200 dark:divide-zinc-800">
         {/* Center: Clean Academic Transcript Reader */}
         <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-5 max-w-4xl mx-auto w-full">
-          {document.paragraphs.map((para) => {
+          {searchTerm.trim() && (
+            <div className="text-[11px] text-zinc-400">
+              {document.paragraphs.filter(matches).length} von {document.paragraphs.length} Absätzen enthalten „{searchTerm.trim()}“
+            </div>
+          )}
+          {document.paragraphs.filter(matches).map((para) => {
+            const isSystem = para.speaker === 'System';
             const isInterviewer = para.speaker === 'Interviewer';
             const paraSegments = docSegments.filter((s) => s.paragraphIndex === para.index);
 
@@ -281,7 +318,9 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
                 key={para.index}
                 onMouseUp={() => handleMouseUp(para.index)}
                 className={`flex items-start gap-4 p-2.5 rounded-xl transition-colors ${
-                  isInterviewer
+                  isSystem
+                    ? 'bg-zinc-50/40 dark:bg-zinc-900/20 text-zinc-400 font-mono text-xs'
+                    : isInterviewer
                     ? 'bg-zinc-50/60 dark:bg-zinc-900/30 text-zinc-500'
                     : 'bg-transparent text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50/40 dark:hover:bg-zinc-900/20'
                 }`}
@@ -292,14 +331,20 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
                 </span>
 
                 {/* Speaker indicator */}
-                <span
-                  className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 select-none ${
-                    isInterviewer
-                      ? 'bg-zinc-200/60 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'
-                      : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                  }`}
-                >
-                  {isInterviewer ? 'I:' : `${document.respondentInfo.code}:`}
+                <span className="shrink-0 select-none w-24 flex flex-col items-start gap-0.5">
+                  <span
+                    className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded max-w-full truncate ${
+                      isSystem
+                        ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400'
+                        : isInterviewer
+                          ? 'bg-zinc-200/60 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'
+                          : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                    }`}
+                    title={para.speakerLabel ? `Sprecherkürzel im Transkript: ${para.speakerLabel}` : undefined}
+                  >
+                    {isSystem ? 'Meta' : isInterviewer ? `I${para.speakerLabel ? ` (${para.speakerLabel})` : ''}` : document.respondentInfo.code}
+                  </span>
+                  {para.time && <span className="text-[10px] font-mono text-zinc-400 px-1">{para.time}</span>}
                 </span>
 
                 {/* Text body */}
@@ -375,7 +420,7 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
           </span>
 
           <select
-            value={manualCodeId}
+            value={effectiveCodeId}
             onChange={(e) => setManualCodeId(e.target.value)}
             className="px-2 py-1 text-xs rounded-md bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 max-w-[160px]"
           >
@@ -384,11 +429,36 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
                 {c.name}
               </option>
             ))}
+            <option value={NEW}>+ Neuer Code …</option>
           </select>
+
+          {effectiveCodeId === NEW && (
+            <>
+              <input
+                autoFocus
+                value={newCodeName}
+                onChange={(e) => setNewCodeName(e.target.value)}
+                placeholder="Code-Name"
+                className="px-2 py-1 text-xs rounded-md bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 w-32"
+              />
+              <select
+                value={newCodeCat || categories[0]?.id || ''}
+                onChange={(e) => setNewCodeCat(e.target.value)}
+                className="px-2 py-1 text-xs rounded-md bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 max-w-[130px]"
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
 
           <button
             onClick={handleApplyManualCode}
-            className="px-2.5 py-1 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-md cursor-pointer"
+            disabled={effectiveCodeId === NEW && (!newCodeName.trim() || categories.length === 0)}
+            className="disabled:opacity-40 px-2.5 py-1 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-md cursor-pointer"
           >
             Markieren
           </button>

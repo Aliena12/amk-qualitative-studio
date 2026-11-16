@@ -1,6 +1,4 @@
 {
-  "name": "AMK Qualitative Analysis Studio",
-  "description": "Automated qualitative content analysis and MAXQDA-style workbench for market and customer data with two-stage AI coding, coding margin stripes, concept map graph, and code matrix browser.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "name": "AMK Interviewauswertung",
+  "description": "Lokale Auswertung qualitativer Interviews (Zusammenhalt an der Fakultät)."
 }

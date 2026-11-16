@@ -20,10 +20,10 @@ export function generateCodedSegmentsCSV(
 
   const headers = [
     'Segment ID',
-    'Dokument ID',
-    'Dokument Titel',
-    'Proband Code',
-    'Absatz Index',
+    'Interview',
+    'Interview-Titel',
+    'Absatz',
+    'Audio-Zeitstempel',
     'Überkategorie',
     'Code Name',
     'Exaktes Zitat',
@@ -39,10 +39,10 @@ export function generateCodedSegmentsCSV(
 
     return [
       escape(seg.id),
-      escape(seg.documentId),
-      escape(doc?.title),
       escape(doc?.respondentInfo.code),
-      seg.paragraphIndex.toString(),
+      escape(doc?.title),
+      `P${String(seg.paragraphIndex).padStart(2, '0')}`,
+      escape(doc?.paragraphs.find((p) => p.index === seg.paragraphIndex)?.time),
       escape(cat?.name),
       escape(code?.name),
       escape(seg.exactQuote),
@@ -67,8 +67,8 @@ export function generateCodeMatrixCSV(
   const headers = [
     'Überkategorie',
     'Code Name',
-    ...documents.map((d) => `"Proband ${d.respondentInfo.code}"`),
-    'Gesamthäufigkeit aller Interviews',
+    ...documents.map((d) => `"${d.respondentInfo.code}"`),
+    'Gesamt',
   ];
 
   const rows = codes.map((code) => {

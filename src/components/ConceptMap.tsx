@@ -69,7 +69,7 @@ export const ConceptMap: React.FC<ConceptMapProps> = ({
     nodes.push({
       id: 'root',
       type: 'root',
-      title: 'AMK Kundenanalyse',
+      title: 'Zusammenhalt an der Fakultät',
       color: '#0f172a',
       x: centerX,
       y: centerY,
@@ -404,7 +404,7 @@ export const ConceptMap: React.FC<ConceptMapProps> = ({
                 >
                   <div className="flex items-center justify-between text-[11px] text-slate-500">
                     <span className="font-semibold text-zinc-800 dark:text-zinc-200 truncate">
-                      Proband {doc?.respondentInfo.code || citation.documentId}
+                      Interview {doc?.respondentInfo.code || citation.documentId}
                     </span>
                     <span className="font-mono tabular-nums">P{citation.paragraphIndex}</span>
                   </div>

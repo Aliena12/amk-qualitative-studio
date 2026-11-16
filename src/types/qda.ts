@@ -3,28 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export type Speaker = 'Interviewer' | 'Befragter' | 'System';
+
 export interface Paragraph {
-  index: number;
-  speaker: 'Interviewer' | 'Befragter' | 'System';
-  speakerLabel?: string;
+  index: number; // Absatznummer (P01, P02, …) – bleibt stabil, damit Codierungen nicht verrutschen
+  speaker: Speaker; // System = Metadaten-Kopf des Transkripts (nicht codierbar)
+  speakerLabel?: string; // Sprecherkürzel im Transkript, z. B. "F", "R", "Interviewte Person"
+  time?: string; // Zeitstempel im Audio, z. B. "00:02:12" (Audiobeleg)
   text: string;
-  sentiment?: 'positive' | 'neutral' | 'negative';
-  sentimentScore?: number; // -1.0 to 1.0
 }
 
 export interface RespondentInfo {
-  code: string; // e.g. "S1", "S2", "S3", "S4", "S5", "S6"
-  fieldOfStudy: string; // e.g. "Wirtschaftswissenschaften / Marketing"
+  code: string; // Kürzel / Pseudonym des Interviews, z. B. "S1"
+  fieldOfStudy: string; // Rolle / Studiengang der interviewten Person
   interviewDate: string;
   duration: string;
-  keyCharacteristic?: string;
-}
-
-export interface SentimentPoint {
-  paragraphIndex: number;
-  score: number; // -1 (frustrated/negative) to +1 (delighted/positive)
-  label: 'Frustration / Barriere' | 'Neutral / Sachlich' | 'Zufriedenheit / Begeisterung';
-  topic: string;
+  keyCharacteristic?: string; // freie Notiz zum Interview
 }
 
 export interface InterviewDocument {
@@ -34,18 +28,17 @@ export interface InterviewDocument {
   respondentInfo: RespondentInfo;
   rawText: string;
   paragraphs: Paragraph[];
-  sentimentTrajectory?: SentimentPoint[];
-  memo?: string;
+  transcriptVersion?: number; // 2 = Sprecher/Zeitstempel sauber getrennt
   createdAt: string;
 }
 
 export interface Code {
   id: string;
   name: string;
-  description: string;
-  categoryId: string; // Foreign key to Category
+  description: string; // Definition / Codieranweisung
+  categoryId: string;
   color: string;
-  frequency: number; // Computed across documents
+  frequency: number; // wird aus den Codierungen berechnet
 }
 
 export interface Category {
@@ -72,33 +65,37 @@ export interface Memo {
   id: string;
   title: string;
   content: string;
-  type: 'theoretical' | 'methodological' | 'case_summary';
+  // theoretical = analytische Notiz, methodological = methodische Entscheidung,
+  // case_summary = Fallprofil, ki_documentation = KI-Dokumentation
+  type: 'theoretical' | 'methodological' | 'case_summary' | 'ki_documentation';
   documentId?: string;
   codeId?: string;
   createdAt: string;
   author: string;
 }
 
+export interface Hypothesis {
+  id: string;
+  label: string; // z. B. "H1"
+  statement: string; // die Hypothese selbst
+  reasoning: string; // Herleitung aus dem Interviewmaterial
+  variables: string; // Variablen / Konstrukte für die Operationalisierung
+  codeIds: string[]; // zugrunde liegende Codes (Kette Interview → Kategorien → Hypothese)
+  createdAt: string;
+}
+
 export interface QdaProject {
   id: string;
   name: string;
-  description: string;
-  courseModule: string; // e.g. "AMK - Analyse von Markt- und Kundendaten"
+  description: string; // Thema / Forschungsfrage
+  courseModule: string;
+  authors?: string; // Gruppe / Autor:innen (erscheint im Bericht)
   documents: InterviewDocument[];
   categories: Category[];
   codes: Code[];
   codedSegments: CodedSegment[];
   memos: Memo[];
-  synthesisReport?: {
-    summary: string;
-    keyInsights: Array<{
-      categoryName: string;
-      takeaway: string;
-      quotes: string[];
-    }>;
-    methodologyNotes: string;
-    generatedAt: string;
-  };
+  hypotheses: Hypothesis[];
 }
 
-export type ActiveTab = 'browser' | 'sentiment' | 'concept_map' | 'code_matrix' | 'memos' | 'synthesis';
+export type ActiveTab = 'browser' | 'concept_map' | 'code_matrix' | 'hypotheses' | 'memos' | 'synthesis';
