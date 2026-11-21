@@ -47,7 +47,19 @@ export interface Category {
   description: string;
   color: string;
   subCodeIds: string[];
+  // einfluss = Begebenheit (unabhängige Seite des Kausalmodells), ziel = Zugehörigkeit/Identifikation (Zielgröße)
+  rolle?: 'einfluss' | 'ziel';
 }
+
+// Wirkung einer Begebenheit auf die Zugehörigkeit (je Textstelle)
+export type Wirkung = 'staerkt' | 'schwaecht' | 'ambivalent' | 'neutral';
+export const WIRKUNG_LABEL: Record<Wirkung, string> = {
+  staerkt: 'stärkt',
+  schwaecht: 'schwächt',
+  ambivalent: 'ambivalent',
+  neutral: 'kein Effekt',
+};
+export const WIRKUNG_ZEICHEN: Record<Wirkung, string> = { staerkt: '+', schwaecht: '−', ambivalent: '±', neutral: '0' };
 
 export interface CodedSegment {
   id: string;
@@ -59,6 +71,10 @@ export interface CodedSegment {
   endIndex: number;
   comment?: string;
   confidence?: number;
+  wirkung?: Wirkung; // Richtung des Einflusses auf die Zugehörigkeit
+  staerke?: 1 | 2 | 3; // Schwere: 1 gering, 2 mittel, 3 stark
+  geprueft?: boolean; // false = Vorschlag (z. B. von KI), noch nicht vom Team bestätigt
+  quelle?: 'manuell' | 'ki'; // wer die Stelle codiert hat
 }
 
 export interface Memo {

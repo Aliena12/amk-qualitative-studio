@@ -17,7 +17,7 @@ interface CodeSystemProps {
   onEditCode: (code: Code) => void;
   onDeleteCode: (codeId: string) => void;
   onMergeCode: (fromId: string, intoId: string) => void;
-  onAddCategory: (c: Pick<Category, 'name' | 'description' | 'color'>) => void;
+  onAddCategory: (c: Pick<Category, 'name' | 'description' | 'color' | 'rolle'>) => void;
   onEditCategory: (c: Category) => void;
   onDeleteCategory: (id: string) => void;
 }
@@ -49,6 +49,7 @@ export const CodeSystem: React.FC<CodeSystemProps> = ({
   const [catName, setCatName] = useState('');
   const [catDesc, setCatDesc] = useState('');
   const [catColor, setCatColor] = useState('#10b981');
+  const [catRolle, setCatRolle] = useState<'einfluss' | 'ziel'>('einfluss');
 
   const countOf = (codeId: string) => codedSegments.filter((s) => s.codeId === codeId).length;
 
@@ -94,6 +95,7 @@ export const CodeSystem: React.FC<CodeSystemProps> = ({
     setCatName('');
     setCatDesc('');
     setCatColor(PALETTE[categories.length % PALETTE.length]);
+    setCatRolle('einfluss');
     setShowCat(true);
   };
   const openEditCat = (c: Category, e: React.MouseEvent) => {
@@ -102,12 +104,13 @@ export const CodeSystem: React.FC<CodeSystemProps> = ({
     setCatName(c.name);
     setCatDesc(c.description);
     setCatColor(c.color);
+    setCatRolle(c.rolle || 'einfluss');
     setShowCat(true);
   };
   const saveCat = (e: React.FormEvent) => {
     e.preventDefault();
     if (!catName.trim()) return;
-    const data = { name: catName.trim(), description: catDesc.trim(), color: catColor };
+    const data = { name: catName.trim(), description: catDesc.trim(), color: catColor, rolle: catRolle };
     if (editingCat) onEditCategory({ ...editingCat, ...data });
     else onAddCategory(data);
     setShowCat(false);
@@ -177,6 +180,7 @@ export const CodeSystem: React.FC<CodeSystemProps> = ({
                   {isCollapsed ? <ChevronRight className="w-3 h-3 text-zinc-400 shrink-0" /> : <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />}
                   <span className="w-2.5 h-2.5 rounded-xs shrink-0" style={{ backgroundColor: category.color }} />
                   <span className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 truncate">{category.name}</span>
+                  {category.rolle === 'ziel' && <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0" title="Zielgröße des Kausalmodells">ZIEL</span>}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button onClick={(e) => { e.stopPropagation(); openAddCode(category.id); }} className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-emerald-600" title="Code in dieser Überkategorie anlegen">
@@ -308,6 +312,12 @@ export const CodeSystem: React.FC<CodeSystemProps> = ({
               <div>
                 <label className={labelCls}>Beschreibung</label>
                 <textarea rows={2} value={catDesc} onChange={(e) => setCatDesc(e.target.value)} className={inputCls} />
+              </div>
+              <div className="flex items-center gap-2">
+                <select value={catRolle} onChange={(e) => setCatRolle(e.target.value as 'einfluss' | 'ziel')} className={inputCls}>
+                  <option value="einfluss">Begebenheit / Einflussfaktor</option>
+                  <option value="ziel">Zielgröße (Zugehörigkeit)</option>
+                </select>
               </div>
               <div className="flex items-center gap-2">
                 <input type="color" value={catColor} onChange={(e) => setCatColor(e.target.value)} className="w-7 h-7 rounded cursor-pointer border border-zinc-300 dark:border-zinc-700 p-0" />

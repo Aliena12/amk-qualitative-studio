@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Code, Category, CodedSegment, InterviewDocument, QdaProject } from '../types/qda';
+import { Code, Category, CodedSegment, InterviewDocument, QdaProject, WIRKUNG_LABEL } from '../types/qda';
+import { einfluss } from './einfluss';
 
 /**
  * Generates CSV string of all coded segments
@@ -27,6 +28,10 @@ export function generateCodedSegmentsCSV(
     'Überkategorie',
     'Code Name',
     'Exaktes Zitat',
+    'Wirkung auf Zugehörigkeit',
+    'Stärke (1-3)',
+    'Geprüft',
+    'Quelle',
     'Kommentar / Memo',
   ];
 
@@ -46,6 +51,10 @@ export function generateCodedSegmentsCSV(
       escape(cat?.name),
       escape(code?.name),
       escape(seg.exactQuote),
+      escape(seg.wirkung ? WIRKUNG_LABEL[seg.wirkung] : ''),
+      seg.staerke ? String(seg.staerke) : '',
+      seg.geprueft === false ? 'nein' : 'ja',
+      seg.quelle === 'ki' ? 'KI-Vorschlag' : 'manuell',
       escape(seg.comment),
     ].join(';');
   });
@@ -68,7 +77,12 @@ export function generateCodeMatrixCSV(
     'Überkategorie',
     'Code Name',
     ...documents.map((d) => `"${d.respondentInfo.code}"`),
-    'Gesamt',
+    'Gesamt (Stellen)',
+    ...documents.map((d) => `"Schwere ${d.respondentInfo.code}"`),
+    'Schwere gesamt',
+    'Schwere stärkend',
+    'Schwere schwächend',
+    'Netto',
   ];
 
   const rows = codes.map((code) => {
@@ -77,6 +91,9 @@ export function generateCodeMatrixCSV(
       return segments.filter((s) => s.codeId === code.id && s.documentId === doc.id).length;
     });
     const total = counts.reduce((sum, n) => sum + n, 0);
+    const ziel = cat?.rolle === 'ziel';
+    const schwere = documents.map((doc) => einfluss(segments.filter((s) => s.codeId === code.id && s.documentId === doc.id)).schwere);
+    const e = einfluss(segments.filter((s) => s.codeId === code.id));
 
     const escape = (str?: string) => `"${(str || '').replace(/"/g, '""')}"`;
 
@@ -85,6 +102,8 @@ export function generateCodeMatrixCSV(
       escape(code.name),
       ...counts.map((c) => c.toString()),
       total.toString(),
+      ...(ziel ? documents.map(() => '') : schwere.map(String)),
+      ...(ziel ? ['', '', '', ''] : [e.schwere, e.plus, e.minus, e.netto].map(String)),
     ].join(';');
   });
 

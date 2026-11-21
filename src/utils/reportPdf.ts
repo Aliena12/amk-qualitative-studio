@@ -33,7 +33,7 @@ const quoteBlock = (q: ReportQuote, color: string) => ({
           stack: [
             { text: `„${q.text}“`, italics: true },
             {
-              text: `${q.doc} · Absatz P${String(q.para).padStart(2, '0')}${q.time ? ` · Audio ${q.time}` : ''}${q.comment ? ` · ${q.comment}` : ''}`,
+              text: `${q.doc} · Absatz P${String(q.para).padStart(2, '0')}${q.time ? ` · Audio ${q.time}` : ''}${q.wirkung ? ` · Wirkung: ${q.wirkung}` : ''}${q.comment ? ` · ${q.comment}` : ''}`,
               style: 'meta',
               margin: [0, 2, 0, 0],
             },
@@ -110,7 +110,7 @@ export async function downloadReportPdf(project: QdaProject): Promise<void> {
       margin: [0, 8, 0, 3],
       columns: [
         { width: 9, canvas: [{ type: 'rect', x: 0, y: 2.5, w: 7, h: 7, color: cat.color }] },
-        { width: '*', text: `2.${ci + 1} ${cat.name}`, style: 'h3' },
+        { width: '*', text: [`2.${ci + 1} ${cat.name}`, cat.ziel ? { text: '   Zielgröße', color: ACCENT, fontSize: 8 } : ''], style: 'h3' },
       ],
     });
     if (cat.description) content.push({ text: cat.description, style: 'meta', margin: [9, 0, 0, 4] });
@@ -119,14 +119,15 @@ export async function downloadReportPdf(project: QdaProject): Promise<void> {
       content.push({
         table: {
           headerRows: 1,
-          widths: [105, '*', 34, 48],
+          widths: cat.ziel ? [105, '*', 34, 48] : [95, '*', 30, 44, 52],
           body: [
-            [th('Code'), th('Definition / Codieranweisung'), th('Stellen', 'right'), th('Interviews', 'right')],
+            [th('Code'), th('Definition / Codieranweisung'), th('Stellen', 'right'), th('Interviews', 'right'), ...(cat.ziel ? [] : [th('Wirkung', 'right')])],
             ...cat.codes.map((c) => [
               { text: c.name, bold: true },
               dash(c.definition),
               { text: String(c.segments), alignment: 'right' },
               { text: `${c.interviews} / ${r.interviews.length}`, alignment: 'right' },
+              ...(cat.ziel ? [] : [{ text: c.wirkung, alignment: 'right' }]),
             ]),
           ],
         },
@@ -134,8 +135,37 @@ export async function downloadReportPdf(project: QdaProject): Promise<void> {
       });
   });
 
-  // 3. Belegstellen
-  content.push(h2('3. Belegstellen (Transkript-Auszüge)'));
+  // 3. Kausalmodell
+  content.push(h2('3. Einflussfaktoren auf die Zugehörigkeit (Kausalmodell)'));
+  content.push({
+    text: `Kausalmodell: Begebenheiten wirken auf die Zugehörigkeit bzw. Identifikation mit Fakultät und Studiengang. Schwere = Summe der Stärken (1–3) der bewerteten Textstellen; sortiert nach Gesamtschwere. stärkt/schwächt: Anzahl Stellen (Schwere). Netto = Schwere stärkend − schwächend.${r.ungeprueft ? ` Stand mit ${r.ungeprueft} noch ungeprüften Bewertung(en).` : ''}`,
+    style: 'meta',
+    margin: [0, 0, 0, 6],
+  });
+  if (r.einfluss.length === 0) content.push(none('Noch keine Textstellen mit Wirkungsbewertung.'));
+  else
+    content.push({
+      table: {
+        headerRows: 1,
+        widths: ['*', 44, 48, 22, 40, 36, 46],
+        body: [
+          [th('Begebenheit (Code) · Kategorie'), th('stärkt', 'right'), th('schwächt', 'right'), th('±', 'right'), th('Schwere', 'right'), th('Netto', 'right'), th('Interviews', 'right')],
+          ...r.einfluss.map((e) => [
+            { text: [{ text: e.code, bold: true }, { text: `  ${e.category}`, color: MUTED, fontSize: 8 }] },
+            { text: e.staerkt ? `${e.staerkt} (${e.plus})` : '–', alignment: 'right', color: '#059669' },
+            { text: e.schwaecht ? `${e.schwaecht} (${e.minus})` : '–', alignment: 'right', color: '#e11d48' },
+            { text: e.ambivalent ? String(e.ambivalent) : '–', alignment: 'right' },
+            { text: String(e.schwere), alignment: 'right', bold: true },
+            { text: e.netto > 0 ? `+${e.netto}` : String(e.netto), alignment: 'right' },
+            { text: `${e.interviews} / ${r.interviews.length}`, alignment: 'right' },
+          ]),
+        ],
+      },
+      layout: grid,
+    });
+
+  // 4. Belegstellen
+  content.push(h2('4. Belegstellen (Transkript-Auszüge)'));
   content.push({
     text: 'Wörtliche Auszüge aus den Transkripten. Angabe je Zitat: Interview · Absatz im Transkript · Zeitstempel in der Audioaufnahme.',
     style: 'meta',
@@ -148,7 +178,7 @@ export async function downloadReportPdf(project: QdaProject): Promise<void> {
   });
 
   // 4. Hypothesen
-  content.push(h2('4. Abgeleitete Hypothesen'));
+  content.push(h2('5. Abgeleitete Hypothesen'));
   if (r.hypotheses.length === 0) content.push(none('Noch keine Hypothesen erfasst.'));
   r.hypotheses.forEach((h) => {
     content.push({
@@ -175,7 +205,7 @@ export async function downloadReportPdf(project: QdaProject): Promise<void> {
 
   // 5.ff Memos (nur wenn vorhanden)
   r.memoSections.forEach((s, si) => {
-    content.push(h2(`${5 + si}. ${s.title}`));
+    content.push(h2(`${6 + si}. ${s.title}`));
     s.items.forEach((m) => {
       content.push({ unbreakable: false, margin: [0, 4, 0, 6], stack: [
         { text: m.title, bold: true },
@@ -184,6 +214,17 @@ export async function downloadReportPdf(project: QdaProject): Promise<void> {
       ] });
     });
   });
+
+  // Zeichen, die die eingebettete Schrift (Roboto) nicht kennt, ersetzen (z. B. Pfeile aus Memos)
+  const ersetzen = (x: any): any =>
+    typeof x === 'string'
+      ? x.replace(/[→⇒➔]/g, '->').replace(/[←⇐]/g, '<-')
+      : Array.isArray(x)
+        ? x.map(ersetzen)
+        : x && typeof x === 'object'
+          ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, typeof v === 'function' ? v : ersetzen(v)]))
+          : x;
+  content.splice(0, content.length, ...ersetzen(content));
 
   const docDefinition: any = {
     pageSize: 'A4',

@@ -78,6 +78,58 @@ app.put('/api/qda/project', (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Optionale KI-Codevorschläge über ein LOKALES Ollama (z. B. llama3).
+// Die Anfrage geht nur an Ollama auf diesem Rechner, nicht ins Internet.
+// ---------------------------------------------------------------------------
+const OLLAMA = (process.env.OLLAMA_HOST || 'http://127.0.0.1:11434').replace(/\/$/, '');
+
+// Ist Ollama erreichbar, welche Modelle sind installiert?
+app.get('/api/ki/status', async (_req: Request, res: Response) => {
+  try {
+    const r = await fetch(`${OLLAMA}/api/tags`, { signal: AbortSignal.timeout(4000) });
+    const data: any = await r.json();
+    res.json({ ok: true, models: (data.models || []).map((m: any) => m.name) });
+  } catch {
+    res.json({ ok: false, models: [] });
+  }
+});
+
+// Ein Abschnitt des Transkripts an das Modell schicken und die JSON-Antwort zurückgeben.
+// Prüfung der Zitate passiert im Browser (dort liegen Absätze und Codes).
+app.post('/api/ki/vorschlaege', async (req: Request, res: Response) => {
+  const { model, system, prompt } = req.body || {};
+  if (!model || !system || !prompt) {
+    res.status(400).json({ error: 'model, system und prompt erforderlich' });
+    return;
+  }
+  try {
+    const r = await fetch(`${OLLAMA}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        format: 'json',
+        options: { temperature: 0.1, num_ctx: 8192 },
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: prompt },
+        ],
+      }),
+      signal: AbortSignal.timeout(5 * 60 * 1000), // langsame Rechner: bis 5 Minuten je Abschnitt
+    });
+    if (!r.ok) {
+      res.status(502).json({ error: `Ollama antwortet mit Status ${r.status}: ${await r.text()}` });
+      return;
+    }
+    const data: any = await r.json();
+    res.json({ content: data.message?.content ?? '' });
+  } catch (err: any) {
+    res.status(502).json({ error: `Ollama nicht erreichbar oder Zeitüberschreitung: ${err?.message || err}` });
+  }
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const { createServer } = await import('vite');

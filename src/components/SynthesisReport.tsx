@@ -20,6 +20,7 @@ const Quote: React.FC<{ q: ReportQuote; color: string }> = ({ q, color }) => (
     <span className="block text-[10px] font-mono text-zinc-400 mt-0.5">
       {q.doc} · Absatz P{String(q.para).padStart(2, '0')}
       {q.time ? ` · Audio ${q.time}` : ''}
+      {q.wirkung ? ` · Wirkung: ${q.wirkung}` : ''}
       {q.comment ? ` · ${q.comment}` : ''}
     </span>
   </blockquote>
@@ -55,7 +56,7 @@ export const SynthesisReport: React.FC<Props> = ({ project, onOpenInfo }) => {
       <div className="flex items-center justify-between gap-3 px-6 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shrink-0">
         <div>
           <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Ergebnisbericht</h2>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">Diese Vorschau ist der Inhalt des PDFs: Datengrundlage, Kategorienschema, Belegstellen, Hypothesen, Memos.</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">Diese Vorschau ist der Inhalt des PDFs: Datengrundlage, Kategorienschema, Kausalmodell, Belegstellen, Hypothesen, Memos.</p>
         </div>
         <button
           onClick={handlePdf}
@@ -122,12 +123,13 @@ export const SynthesisReport: React.FC<Props> = ({ project, onOpenInfo }) => {
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-xs" style={{ backgroundColor: cat.color }} />
                   <h3 className="text-sm font-bold">2.{ci + 1} {cat.name}</h3>
+                  {cat.ziel && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold">Zielgröße</span>}
                 </div>
                 {cat.description && <p className="text-xs text-zinc-600 dark:text-zinc-400">{cat.description}</p>}
                 {cat.codes.length === 0 ? <p className="text-xs italic text-zinc-400">Noch keine Codes in dieser Überkategorie.</p> : (
                   <table className="w-full text-xs text-left">
                     <thead className="text-zinc-500 border-b border-zinc-200 dark:border-zinc-800">
-                      <tr><th className="py-2 pr-3">Code</th><th className="py-2 pr-3">Definition / Codieranweisung</th><th className="py-2 pr-3 text-right">Stellen</th><th className="py-2 text-right">Interviews</th></tr>
+                      <tr><th className="py-2 pr-3">Code</th><th className="py-2 pr-3">Definition / Codieranweisung</th><th className="py-2 pr-3 text-right">Stellen</th><th className="py-2 pr-3 text-right">Interviews</th>{!cat.ziel && <th className="py-2 text-right" title="Schwere stärkend / schwächend / ambivalent">Wirkung</th>}</tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                       {cat.codes.map((c) => (
@@ -135,7 +137,8 @@ export const SynthesisReport: React.FC<Props> = ({ project, onOpenInfo }) => {
                           <td className="py-2 pr-3 font-semibold align-top">{c.name}</td>
                           <td className="py-2 pr-3 text-zinc-600 dark:text-zinc-300 align-top">{c.definition || '–'}</td>
                           <td className="py-2 pr-3 text-right font-mono tabular-nums align-top">{c.segments}</td>
-                          <td className="py-2 text-right font-mono tabular-nums align-top">{c.interviews} / {r.interviews.length}</td>
+                          <td className="py-2 pr-3 text-right font-mono tabular-nums align-top">{c.interviews} / {r.interviews.length}</td>
+                          {!cat.ziel && <td className="py-2 text-right font-mono tabular-nums align-top whitespace-nowrap">{c.wirkung}</td>}
                         </tr>
                       ))}
                     </tbody>
@@ -145,8 +148,37 @@ export const SynthesisReport: React.FC<Props> = ({ project, onOpenInfo }) => {
             ))}
           </div>
 
+          <div className="space-y-3">
+            {title('3', 'Einflussfaktoren auf die Zugehörigkeit (Kausalmodell)', 'bg-rose-600')}
+            <p className="text-[11px] text-zinc-400">
+              Begebenheiten → Wirkung auf Zugehörigkeit/Identifikation mit Fakultät und Studiengang. Schwere = Summe der Stärken (1–3) der bewerteten Textstellen, sortiert nach Gesamtschwere.
+              {r.ungeprueft > 0 && ` ${r.ungeprueft} Bewertung(en) sind noch ungeprüfte Vorschläge.`}
+            </p>
+            {r.einfluss.length === 0 ? <p className="text-xs italic text-zinc-400">Noch keine Textstellen mit Wirkungsbewertung.</p> : (
+              <table className="w-full text-xs text-left">
+                <thead className="text-zinc-500 border-b border-zinc-200 dark:border-zinc-800">
+                  <tr><th className="py-2 pr-3">Begebenheit (Code)</th><th className="py-2 pr-3 text-right">stärkt</th><th className="py-2 pr-3 text-right">schwächt</th><th className="py-2 pr-3 text-right">±</th><th className="py-2 pr-3 text-right">Schwere</th><th className="py-2 pr-3 text-right">Netto</th><th className="py-2 text-right">Interviews</th></tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {r.einfluss.map((e) => (
+                    <tr key={e.category + e.code}>
+                      <td className="py-1.5 pr-3"><span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: e.color }} /><b>{e.code}</b> <span className="text-zinc-400">· {e.category}</span></td>
+                      <td className="py-1.5 pr-3 text-right whitespace-nowrap font-mono text-emerald-600">{e.staerkt ? `${e.staerkt} (${e.plus})` : '–'}</td>
+                      <td className="py-1.5 pr-3 text-right whitespace-nowrap font-mono text-rose-600">{e.schwaecht ? `${e.schwaecht} (${e.minus})` : '–'}</td>
+                      <td className="py-1.5 pr-3 text-right whitespace-nowrap font-mono text-amber-600">{e.ambivalent || '–'}</td>
+                      <td className="py-1.5 pr-3 text-right whitespace-nowrap font-mono font-bold">{e.schwere}</td>
+                      <td className={`py-1.5 pr-3 text-right font-mono ${e.netto > 0 ? 'text-emerald-600' : e.netto < 0 ? 'text-rose-600' : ''}`}>{e.netto > 0 ? `+${e.netto}` : e.netto}</td>
+                      <td className="py-1.5 text-right font-mono">{e.interviews} / {r.interviews.length}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <p className="text-[10px] text-zinc-400">stärkt/schwächt: Anzahl Stellen (Schwere). Netto = Schwere stärkend − schwächend.</p>
+          </div>
+
           <div className="space-y-4">
-            {title('3', 'Belegstellen (Transkript-Auszüge)', 'bg-amber-600')}
+            {title('4', 'Belegstellen (Transkript-Auszüge)', 'bg-amber-600')}
             <p className="text-[11px] text-zinc-400">Wörtliche Auszüge. Angabe je Zitat: Interview · Absatz im Transkript · Zeitstempel in der Audioaufnahme.</p>
             {r.evidence.length === 0 && <p className="text-xs italic text-zinc-400">Noch keine Textstellen codiert.</p>}
             {r.evidence.map((e) => (
@@ -158,7 +190,7 @@ export const SynthesisReport: React.FC<Props> = ({ project, onOpenInfo }) => {
           </div>
 
           <div className="space-y-3">
-            {title('4', 'Abgeleitete Hypothesen', 'bg-purple-600')}
+            {title('5', 'Abgeleitete Hypothesen', 'bg-purple-600')}
             {r.hypotheses.length === 0 && <p className="text-xs italic text-zinc-400">Noch keine Hypothesen erfasst (Tab „Hypothesen“).</p>}
             {r.hypotheses.map((h) => (
               <div key={h.label} className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 break-inside-avoid space-y-1.5">
@@ -174,7 +206,7 @@ export const SynthesisReport: React.FC<Props> = ({ project, onOpenInfo }) => {
 
           {r.memoSections.map((s, si) => (
             <div key={s.title} className="space-y-3">
-              {title(String(5 + si), s.title, 'bg-indigo-600')}
+              {title(String(6 + si), s.title, 'bg-indigo-600')}
               {s.items.map((m, i) => (
                 <div key={i} className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 break-inside-avoid space-y-1">
                   <h3 className="text-sm font-bold">{m.title}</h3>

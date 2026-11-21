@@ -20,6 +20,7 @@ import { ExportModal } from './components/ExportModal';
 import { UploadModal } from './components/UploadModal';
 import { InterviewDetailsModal } from './components/InterviewDetailsModal';
 import { ProjectInfoModal } from './components/ProjectInfoModal';
+import { KiModal } from './components/KiModal';
 import { PanelLeftClose, PanelLeftOpen, Upload } from 'lucide-react';
 
 const STORAGE_KEY = 'amk_qda_project_data_v2'; // nur Notfall-Kopie im Browser; maßgeblich ist data/projekt.json
@@ -52,6 +53,7 @@ export default function App() {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
+  const [kiDocId, setKiDocId] = useState<string | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDarkMode);
@@ -199,7 +201,7 @@ export default function App() {
   };
 
   // --- Überkategorien ---
-  const handleAddCategory = (d: Pick<Category, 'name' | 'description' | 'color'>) =>
+  const handleAddCategory = (d: Pick<Category, 'name' | 'description' | 'color' | 'rolle'>) =>
     mutate((p) => ({ ...p, categories: [...p.categories, { id: `cat-user-${Date.now()}`, subCodeIds: [], ...d }] }));
   const handleEditCategory = (c: Category) => mutate((p) => ({ ...p, categories: p.categories.map((x) => (x.id === c.id ? c : x)) }));
   const handleDeleteCategory = (id: string) => mutate((p) => ({ ...p, categories: p.categories.filter((c) => c.id !== id) }));
@@ -209,6 +211,13 @@ export default function App() {
   const handleEditSegment = (seg: CodedSegment) => mutate((p) => ({ ...p, codedSegments: p.codedSegments.map((s) => (s.id === seg.id ? seg : s)) }));
   const handleAddSegment = (seg: Omit<CodedSegment, 'id'>) =>
     mutate((p) => ({ ...p, codedSegments: [...p.codedSegments, { ...seg, id: `seg-manual-${Date.now()}-${Math.floor(Math.random() * 1000)}` }] }));
+
+  // Mehrere Textstellen auf einmal (KI-Vorschläge)
+  const handleAddSegments = (segs: Omit<CodedSegment, 'id'>[]) =>
+    mutate((p) => ({
+      ...p,
+      codedSegments: [...p.codedSegments, ...segs.map((s, i) => ({ ...s, id: `seg-ki-${Date.now()}-${i}-${Math.floor(Math.random() * 1000)}` }))],
+    }));
 
   // --- Memos ---
   const handleAddMemo = (m: Omit<Memo, 'id' | 'createdAt'>) =>
@@ -351,6 +360,7 @@ export default function App() {
                 onAddManualSegment={handleAddSegment}
                 onAddCode={handleAddCode}
                 onEditDocument={() => setEditingDocId(currentDocument.id)}
+                onOpenKi={() => setKiDocId(currentDocument.id)}
               />
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-center p-8 gap-3">
@@ -434,6 +444,19 @@ export default function App() {
           otherCodes={project.documents.filter((d) => d.id !== editingDoc.id).map((d) => d.respondentInfo.code)}
           onClose={() => setEditingDocId(null)}
           onSave={handleUpdateDoc}
+        />
+      )}
+
+      {kiDocId && project.documents.some((d) => d.id === kiDocId) && (
+        <KiModal
+          doc={project.documents.find((d) => d.id === kiDocId)!}
+          codes={project.codes}
+          categories={project.categories}
+          codedSegments={project.codedSegments}
+          forschungsfrage={project.description}
+          onClose={() => setKiDocId(null)}
+          onAddSegments={handleAddSegments}
+          onAddMemo={handleAddMemo}
         />
       )}
 

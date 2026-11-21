@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { InterviewDocument, Code, Category, CodedSegment } from '../types/qda';
+import { InterviewDocument, Code, Category, CodedSegment, Wirkung, WIRKUNG_LABEL, WIRKUNG_ZEICHEN } from '../types/qda';
+import { WirkungPicker, WIRKUNG_FARBE } from './WirkungPicker';
 import {
   Search,
   Tag,
@@ -17,6 +18,7 @@ import {
   Info,
   Check,
   Pencil,
+  Sparkles,
 } from 'lucide-react';
 
 interface DocumentBrowserProps {
@@ -31,6 +33,7 @@ interface DocumentBrowserProps {
   onAddManualSegment: (segment: Omit<CodedSegment, 'id'>) => void;
   onAddCode: (code: Partial<Code>) => string;
   onEditDocument: () => void;
+  onOpenKi: () => void;
 }
 
 export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
@@ -45,6 +48,7 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
   onAddManualSegment,
   onAddCode,
   onEditDocument,
+  onOpenKi,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [fontSize, setFontSize] = useState<'sm' | 'base' | 'lg'>('base');
@@ -55,6 +59,12 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
   const [editCodeId, setEditCodeId] = useState<string>('');
   const [editQuote, setEditQuote] = useState<string>('');
   const [editComment, setEditComment] = useState<string>('');
+  const [editWirkung, setEditWirkung] = useState<Wirkung | undefined>();
+  const [editStaerke, setEditStaerke] = useState<1 | 2 | 3 | undefined>();
+  // Wirkung/Stärke für neue Markierungen
+  const [neuWirkung, setNeuWirkung] = useState<Wirkung | undefined>();
+  const [neuStaerke, setNeuStaerke] = useState<1 | 2 | 3 | undefined>();
+  const [nurUngeprueft, setNurUngeprueft] = useState(false);
 
   // Manual Selection State
   const [selectedTextData, setSelectedTextData] = useState<{
@@ -73,11 +83,15 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
 
   const codeMap = new Map(codes.map((c) => [c.id, c]));
   const catMap = new Map(categories.map((c) => [c.id, c]));
+  // Codes der Zielgröße (Zugehörigkeit) bekommen keine Wirkungsbewertung
+  const istZiel = (codeId: string) => catMap.get(codeMap.get(codeId)?.categoryId || '')?.rolle === 'ziel';
+  const ungeprueftImDok = codedSegments.filter((s) => s.documentId === document.id && s.geprueft === false).length;
 
   // Document Segments
   const docSegments = codedSegments.filter((s) => {
     if (s.documentId !== document.id) return false;
     if (activeCodeFilter && s.codeId !== activeCodeFilter) return false;
+    if (nurUngeprueft && s.geprueft !== false) return false;
     return true;
   });
 
@@ -140,10 +154,15 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
       endIndex: selectedTextData.endIndex,
       comment: '',
       confidence: 1.0,
+      quelle: 'manuell',
+      geprueft: true,
+      ...(!istZiel(codeId) && neuWirkung ? { wirkung: neuWirkung, staerke: neuStaerke } : {}),
     });
 
     window.getSelection()?.removeAllRanges();
     setSelectedTextData(null);
+    setNeuWirkung(undefined);
+    setNeuStaerke(undefined);
   };
 
   const handleOpenEdit = (seg: CodedSegment, e: React.MouseEvent) => {
@@ -152,18 +171,29 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
     setEditCodeId(seg.codeId);
     setEditQuote(seg.exactQuote);
     setEditComment(seg.comment || '');
+    setEditWirkung(seg.wirkung);
+    setEditStaerke(seg.staerke);
+  };
+
+  // bestaetigen = Stelle gilt danach als vom Team geprüft
+  const saveEdit = (bestaetigen: boolean) => {
+    if (!editingSegment) return;
+    const { wirkung, staerke, ...rest } = editingSegment;
+    const ziel = istZiel(editCodeId);
+    onEditSegment({
+      ...rest,
+      codeId: editCodeId,
+      exactQuote: editQuote.trim(),
+      comment: editComment.trim(),
+      ...(!ziel && editWirkung ? { wirkung: editWirkung, ...(editWirkung !== 'neutral' && editStaerke ? { staerke: editStaerke } : {}) } : {}),
+      geprueft: bestaetigen ? true : editingSegment.geprueft,
+    });
+    setEditingSegment(null);
   };
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingSegment) return;
-
-    onEditSegment({
-      ...editingSegment,
-      codeId: editCodeId,
-      exactQuote: editQuote.trim(),
-      comment: editComment.trim(),
-    });
+    saveEdit(true);
 
     setEditingSegment(null);
   };
@@ -205,6 +235,25 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
 
         {/* Search & Font Controls */}
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={onOpenKi}
+            className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold rounded-md border border-violet-300 dark:border-violet-800 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/30 cursor-pointer"
+            title="Codevorschläge von einem lokalen Sprachmodell (Ollama, z. B. llama3)"
+          >
+            <Sparkles className="w-3 h-3" />
+            KI-Vorschläge
+          </button>
+          {(ungeprueftImDok > 0 || nurUngeprueft) && (
+            <button
+              onClick={() => setNurUngeprueft(!nurUngeprueft)}
+              className={`px-2 py-1 text-[11px] font-semibold rounded-md border cursor-pointer ${
+                nurUngeprueft ? 'bg-amber-500 text-white border-amber-500' : 'text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30'
+              }`}
+              title="Vorschläge (Wirkung/Stärke oder KI-Codierungen), die noch vom Team bestätigt werden müssen"
+            >
+              {nurUngeprueft ? 'Alle Stellen zeigen' : `${ungeprueftImDok} zu prüfen`}
+            </button>
+          )}
           <div className="relative">
             <Search className="w-3 h-3 absolute left-2.5 top-2 text-zinc-400" />
             <input
@@ -248,7 +297,7 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
               {document.paragraphs.filter(matches).length} von {document.paragraphs.length} Absätzen enthalten „{searchTerm.trim()}“
             </div>
           )}
-          {document.paragraphs.filter(matches).map((para) => {
+          {document.paragraphs.filter(matches).filter((p) => !nurUngeprueft || docSegments.some((s) => s.paragraphIndex === p.index)).map((para) => {
             const isSystem = para.speaker === 'System';
             const isInterviewer = para.speaker === 'Interviewer';
             const paraSegments = docSegments.filter((s) => s.paragraphIndex === para.index);
@@ -293,12 +342,26 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
                       }`}
                       style={{
                         backgroundColor: code ? `${code.color}35` : '#10b98135',
-                        borderBottom: `2.5px solid ${code?.color || '#10b981'}`,
+                        borderBottom: `2.5px ${seg.geprueft === false ? 'dashed' : 'solid'} ${code?.color || '#10b981'}`,
                         color: 'inherit',
                       }}
-                      title={`Code: ${code?.name} · Klicke zum Bearbeiten`}
+                      title={`Code: ${code?.name}${seg.wirkung ? ` · Wirkung: ${WIRKUNG_LABEL[seg.wirkung]}${seg.staerke ? ` (${seg.staerke})` : ''}` : ''}${
+                        seg.quelle === 'ki' ? ' · KI-Vorschlag' : ''
+                      }${seg.geprueft === false ? ' · noch nicht geprüft' : ''} · Klicke zum Bearbeiten`}
                     >
                       {seg.exactQuote}
+                      {(seg.wirkung || seg.geprueft === false || seg.quelle === 'ki') && (
+                        <sup className="ml-0.5 select-none text-[9px] font-bold whitespace-nowrap">
+                          {seg.quelle === 'ki' && <span className="text-violet-500">KI </span>}
+                          {seg.wirkung && (
+                            <span style={{ color: WIRKUNG_FARBE[seg.wirkung] }}>
+                              {WIRKUNG_ZEICHEN[seg.wirkung]}
+                              {seg.staerke || ''}
+                            </span>
+                          )}
+                          {seg.geprueft === false && <span className="text-amber-500">?</span>}
+                        </sup>
+                      )}
                     </mark>
                   );
 
@@ -455,6 +518,10 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
             </>
           )}
 
+          {effectiveCodeId !== NEW && !istZiel(effectiveCodeId) && (
+            <WirkungPicker compact wirkung={neuWirkung} staerke={neuStaerke} onChange={(w, st) => { setNeuWirkung(w); setNeuStaerke(st); }} />
+          )}
+
           <button
             onClick={handleApplyManualCode}
             disabled={effectiveCodeId === NEW && (!newCodeName.trim() || categories.length === 0)}
@@ -475,7 +542,7 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
       {/* Edit Coded Segment Modal (for retroactive changes) */}
       {editingSegment && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-zinc-900 rounded-xl max-w-md w-full p-5 border border-zinc-200 dark:border-zinc-800 shadow-2xl">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl max-w-lg w-full p-5 border border-zinc-200 dark:border-zinc-800 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                 <Edit2 className="w-4 h-4 text-emerald-500" />
@@ -506,6 +573,24 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
                   ))}
                 </select>
               </div>
+
+              {!istZiel(editCodeId) ? (
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
+                    Wirkung auf die Zugehörigkeit · Stärke (1 gering – 3 stark)
+                  </label>
+                  <WirkungPicker wirkung={editWirkung} staerke={editStaerke} onChange={(w, st) => { setEditWirkung(w); setEditStaerke(st); }} />
+                </div>
+              ) : (
+                <p className="text-[11px] text-zinc-400">Code der Zielgröße (Zugehörigkeit) – ohne Wirkungsbewertung.</p>
+              )}
+
+              {(editingSegment.geprueft === false || editingSegment.quelle === 'ki') && (
+                <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 text-[11px] text-amber-800 dark:text-amber-200">
+                  {editingSegment.quelle === 'ki' ? 'KI-Vorschlag' : 'Vorschlag'}
+                  {editingSegment.geprueft === false ? ' – noch nicht bestätigt. „Prüfen & bestätigen“ übernimmt ihn als eure Codierung.' : ' – bereits bestätigt.'}
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
@@ -554,11 +639,20 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
                   >
                     Abbrechen
                   </button>
+                  {editingSegment.geprueft === false && (
+                    <button
+                      type="button"
+                      onClick={() => saveEdit(false)}
+                      className="px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 rounded-lg cursor-pointer"
+                    >
+                      Speichern, ungeprüft
+                    </button>
+                  )}
                   <button
                     type="submit"
                     className="px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg cursor-pointer"
                   >
-                    Änderungen speichern
+                    {editingSegment.geprueft === false ? 'Prüfen & bestätigen' : 'Speichern'}
                   </button>
                 </div>
               </div>

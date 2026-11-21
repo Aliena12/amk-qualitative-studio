@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { CodedSegment, Memo, QdaProject } from '../types/qda';
+import { CodedSegment, Memo, QdaProject, WIRKUNG_LABEL } from '../types/qda';
+import { einfluss, kurz } from './einfluss';
 
 // Gemeinsame Datengrundlage für die Bildschirm-Vorschau (SynthesisReport) und den PDF-Export (reportPdf),
 // damit beide immer denselben Inhalt zeigen.
@@ -14,6 +15,7 @@ export interface ReportQuote {
   time?: string; // Zeitstempel im Audio
   text: string;
   comment?: string;
+  wirkung?: string; // z. B. "stärkt (2)"
 }
 
 export interface ReportModel {
@@ -27,8 +29,24 @@ export interface ReportModel {
     name: string;
     color: string;
     description: string;
-    codes: { name: string; color: string; definition: string; segments: number; interviews: number }[];
+    ziel: boolean; // Zielgröße des Kausalmodells
+    codes: { name: string; color: string; definition: string; segments: number; interviews: number; wirkung: string }[];
   }[];
+  // Kausalmodell: Begebenheiten nach Schwere ihres Einflusses auf die Zugehörigkeit
+  einfluss: {
+    category: string;
+    code: string;
+    color: string;
+    staerkt: number;
+    schwaecht: number;
+    ambivalent: number;
+    plus: number;
+    minus: number;
+    schwere: number;
+    netto: number;
+    interviews: number;
+  }[];
+  ungeprueft: number;
   evidence: { category: string; code: string; color: string; quotes: ReportQuote[] }[];
   hypotheses: {
     label: string;
@@ -75,6 +93,7 @@ export function buildReport(p: QdaProject): ReportModel {
       time: d?.paragraphs.find((x) => x.index === s.paragraphIndex)?.time,
       text: s.exactQuote,
       comment: s.comment || undefined,
+      wirkung: s.wirkung ? `${WIRKUNG_LABEL[s.wirkung]}${s.staerke && s.wirkung !== 'neutral' ? ` (${s.staerke})` : ''}` : undefined,
     };
   };
   // Zitate auswählen: erst je ein Zitat pro Interview, dann auffüllen
@@ -97,13 +116,38 @@ export function buildReport(p: QdaProject): ReportModel {
     name: cat.name,
     color: cat.color,
     description: cat.description,
+    ziel: cat.rolle === 'ziel',
     codes: p.codes
       .filter((c) => c.categoryId === cat.id)
       .map((c) => {
         const segs = segsOf(c.id);
-        return { name: c.name, color: c.color, definition: c.description, segments: segs.length, interviews: nDocs(segs) };
+        return { name: c.name, color: c.color, definition: c.description, segments: segs.length, interviews: nDocs(segs), wirkung: kurz(einfluss(segs)) };
       }),
   }));
+
+  const catById = new Map(p.categories.map((c) => [c.id, c]));
+  const einflussTab = p.codes
+    .filter((c) => catById.get(c.categoryId)?.rolle !== 'ziel')
+    .map((c) => {
+      const segs = segsOf(c.id);
+      const e = einfluss(segs);
+      return {
+        category: catById.get(c.categoryId)?.name ?? '',
+        code: c.name,
+        color: c.color,
+        staerkt: e.staerkt,
+        schwaecht: e.schwaecht,
+        ambivalent: e.ambivalent,
+        plus: e.plus,
+        minus: e.minus,
+        schwere: e.schwere,
+        netto: e.netto,
+        interviews: nDocs(segs.filter((s) => s.wirkung && s.wirkung !== 'neutral')),
+      };
+    })
+    .filter((r) => r.schwere > 0)
+    .sort((a, b) => b.schwere - a.schwere || b.interviews - a.interviews);
+  const ungeprueft = p.codedSegments.filter((s) => s.geprueft === false).length;
 
   const evidence = p.categories.flatMap((cat) =>
     p.codes
@@ -149,6 +193,10 @@ export function buildReport(p: QdaProject): ReportModel {
   const seen = new Set<string>();
   const dup = p.codes.map((c) => c.name.trim().toLowerCase()).filter((n) => seen.has(n) || !seen.add(n));
   if (dup.length) warnings.push(`Doppelt vergebene Code-Namen (Trennschärfe prüfen): ${names(dup)}.`);
+  if (ungeprueft) warnings.push(`${ungeprueft} Textstelle(n) mit Vorschlägen (Wirkung/Stärke oder KI-Codierung) sind noch nicht geprüft – im Tab „Codieren“ über „zu prüfen“.`);
+  const zielIds = new Set(p.categories.filter((c) => c.rolle === 'ziel').map((c) => c.id));
+  const ohneW = p.codedSegments.filter((s) => !s.wirkung && !zielIds.has(codeById.get(s.codeId)?.categoryId || '')).length;
+  if (ohneW) warnings.push(`${ohneW} Textstelle(n) zu Begebenheiten ohne Wirkungsbewertung – sie fehlen im Kausalmodell.`);
   if (p.hypotheses.length === 0) warnings.push('Noch keine Hypothesen angelegt (Tab „Hypothesen“).');
   const loose = p.hypotheses.filter((h) => h.codeIds.length === 0).map((h) => h.label);
   if (loose.length) warnings.push(`Hypothese(n) ohne verknüpfte Codes: ${names(loose)} – die Kette Interview → Kategorie → Hypothese ist unterbrochen.`);
@@ -161,6 +209,8 @@ export function buildReport(p: QdaProject): ReportModel {
     date: new Date().toLocaleDateString('de-DE'),
     interviews,
     schema,
+    einfluss: einflussTab,
+    ungeprueft,
     evidence,
     hypotheses,
     memoSections,
