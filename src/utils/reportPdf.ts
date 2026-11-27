@@ -33,10 +33,11 @@ const quoteBlock = (q: ReportQuote, color: string) => ({
           stack: [
             { text: `„${q.text}“`, italics: true },
             {
-              text: `${q.doc} · Absatz P${String(q.para).padStart(2, '0')}${q.time ? ` · Audio ${q.time}` : ''}${q.wirkung ? ` · Wirkung: ${q.wirkung}` : ''}${q.comment ? ` · ${q.comment}` : ''}`,
+              text: `${q.doc} · Absatz P${String(q.para).padStart(2, '0')}${q.time ? ` · Audio ${q.time}` : ''}`,
               style: 'meta',
               margin: [0, 2, 0, 0],
             },
+            ...(q.comment ? [{ text: `Kontext: ${q.comment}`, style: 'meta', margin: [0, 1, 0, 0] }] : []),
           ],
         },
       ],
@@ -119,15 +120,14 @@ export async function downloadReportPdf(project: QdaProject): Promise<void> {
       content.push({
         table: {
           headerRows: 1,
-          widths: cat.ziel ? [105, '*', 34, 48] : [95, '*', 30, 44, 52],
+          widths: [105, '*', 34, 48],
           body: [
-            [th('Code'), th('Definition / Codieranweisung'), th('Stellen', 'right'), th('Interviews', 'right'), ...(cat.ziel ? [] : [th('Wirkung', 'right')])],
+            [th('Code'), th('Definition / Codieranweisung'), th('Stellen', 'right'), th('Interviews', 'right')],
             ...cat.codes.map((c) => [
               { text: c.name, bold: true },
               dash(c.definition),
               { text: String(c.segments), alignment: 'right' },
               { text: `${c.interviews} / ${r.interviews.length}`, alignment: 'right' },
-              ...(cat.ziel ? [] : [{ text: c.wirkung, alignment: 'right' }]),
             ]),
           ],
         },
@@ -135,28 +135,24 @@ export async function downloadReportPdf(project: QdaProject): Promise<void> {
       });
   });
 
-  // 3. Kausalmodell
-  content.push(h2('3. Einflussfaktoren auf die Zugehörigkeit (Kausalmodell)'));
+  // 3. Schwere der Einflussfaktoren
+  content.push(h2('3. Einflussfaktoren auf die Zugehörigkeit (nach Schwere)'));
   content.push({
-    text: `Kausalmodell: Begebenheiten wirken auf die Zugehörigkeit bzw. Identifikation mit Fakultät und Studiengang. Schwere = Summe der Stärken (1–3) der bewerteten Textstellen; sortiert nach Gesamtschwere. stärkt/schwächt: Anzahl Stellen (Schwere). Netto = Schwere stärkend − schwächend.${r.ungeprueft ? ` Stand mit ${r.ungeprueft} noch ungeprüften Bewertung(en).` : ''}`,
+    text: `Begebenheiten, die auf die Zugehörigkeit bzw. Identifikation mit Fakultät und Studiengang wirken. Schwere = Anzahl der Nennungen (codierte Textstellen); sortiert nach Schwere.${r.ungeprueft ? ` Enthält ${r.ungeprueft} noch ungeprüfte(n) KI-Vorschlag/Vorschläge.` : ''}`,
     style: 'meta',
     margin: [0, 0, 0, 6],
   });
-  if (r.einfluss.length === 0) content.push(none('Noch keine Textstellen mit Wirkungsbewertung.'));
+  if (r.einfluss.length === 0) content.push(none('Noch keine Textstellen codiert.'));
   else
     content.push({
       table: {
         headerRows: 1,
-        widths: ['*', 44, 48, 22, 40, 36, 46],
+        widths: ['*', 80, 60],
         body: [
-          [th('Begebenheit (Code) · Kategorie'), th('stärkt', 'right'), th('schwächt', 'right'), th('±', 'right'), th('Schwere', 'right'), th('Netto', 'right'), th('Interviews', 'right')],
+          [th('Begebenheit (Code) · Kategorie'), th('Schwere (Nennungen)', 'right'), th('Interviews', 'right')],
           ...r.einfluss.map((e) => [
             { text: [{ text: e.code, bold: true }, { text: `  ${e.category}`, color: MUTED, fontSize: 8 }] },
-            { text: e.staerkt ? `${e.staerkt} (${e.plus})` : '–', alignment: 'right', color: '#059669' },
-            { text: e.schwaecht ? `${e.schwaecht} (${e.minus})` : '–', alignment: 'right', color: '#e11d48' },
-            { text: e.ambivalent ? String(e.ambivalent) : '–', alignment: 'right' },
             { text: String(e.schwere), alignment: 'right', bold: true },
-            { text: e.netto > 0 ? `+${e.netto}` : String(e.netto), alignment: 'right' },
             { text: `${e.interviews} / ${r.interviews.length}`, alignment: 'right' },
           ]),
         ],
@@ -187,7 +183,7 @@ export async function downloadReportPdf(project: QdaProject): Promise<void> {
       text: [{ text: `${h.label}  `, bold: true, color: ACCENT }, { text: h.statement, bold: true }],
     });
     if (h.reasoning) content.push({ text: [{ text: 'Herleitung: ', bold: true }, h.reasoning], margin: [0, 0, 0, 2] });
-    if (h.variables) content.push({ text: [{ text: 'Variablen / Konstrukte: ', bold: true }, h.variables], margin: [0, 0, 0, 2] });
+    if (h.wirktAuf) content.push({ text: [{ text: 'Wirkt auf: ', bold: true }, h.wirktAuf], margin: [0, 0, 0, 2] });
     content.push({
       text: [
         { text: 'Zugrunde liegende Codes: ', bold: true },
@@ -200,7 +196,6 @@ export async function downloadReportPdf(project: QdaProject): Promise<void> {
       style: 'meta',
       margin: [0, 0, 0, 4],
     });
-    h.quotes.forEach((q) => content.push(quoteBlock(q, ACCENT)));
   });
 
   // 5.ff Memos (nur wenn vorhanden)

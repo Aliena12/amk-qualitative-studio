@@ -6,7 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Category, Code, CodedSegment, InterviewDocument, Memo } from '../types/qda';
 import { Sparkles, X, Loader2 } from 'lucide-react';
-import { abschnitte, auswerten, codeListe, KI_PROMPT, KI_SYSTEM } from '../utils/ki';
+import { auswerten, codeListe, einheiten, KI_FORMAT, KI_PROMPT, KI_SYSTEM } from '../utils/ki';
 
 interface Props {
   doc: InterviewDocument;
@@ -25,7 +25,7 @@ export const KiModal: React.FC<Props> = ({ doc, codes, categories, codedSegments
   const [model, setModel] = useState('');
   const [skipCoded, setSkipCoded] = useState(true);
   const [lauf, setLauf] = useState<{ i: number; n: number } | null>(null);
-  const [ergebnis, setErgebnis] = useState<{ neu: number; verworfen: { grund: string; zitat: string }[]; fehler?: string; abgebrochen?: boolean; roh: string[] } | null>(null);
+  const [ergebnis, setErgebnis] = useState<{ neu: number; leer: number; verworfen: { grund: string; zitat: string }[]; fehler?: string; abgebrochen?: boolean; roh: string[] } | null>(null);
   const stop = useRef(false);
 
   const pruefen = () => {
@@ -43,13 +43,13 @@ export const KiModal: React.FC<Props> = ({ doc, codes, categories, codedSegments
   const ohneDef = codes.filter((c) => !c.description.trim()).length;
   const codiert = new Set(codedSegments.filter((s) => s.documentId === doc.id).map((s) => s.paragraphIndex));
   const skip = skipCoded ? codiert : new Set<number>();
-  const teile = abschnitte(doc, skip);
+  const teile = einheiten(doc, skip);
 
   const starten = async () => {
     stop.current = false;
-    const liste = codeListe(codes, categories);
-    const system = KI_SYSTEM(forschungsfrage);
+    const system = KI_SYSTEM(forschungsfrage, codeListe(codes, categories));
     let neu = 0;
+    let leer = 0; // Antworten ohne passenden Code
     const verworfen: { grund: string; zitat: string }[] = [];
     const roh: string[] = []; // Rohantworten zur Fehlersuche
     let fehler: string | undefined;
@@ -61,15 +61,16 @@ export const KiModal: React.FC<Props> = ({ doc, codes, categories, codedSegments
         const r = await fetch('/api/ki/vorschlaege', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model, system, prompt: KI_PROMPT(liste, teile[i]) }),
+          body: JSON.stringify({ model, system, prompt: KI_PROMPT(teile[i]), format: KI_FORMAT }),
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || `Status ${r.status}`);
-        if (roh.length < 3) roh.push(String(data.content));
-        const e = auswerten(data.content, doc, teile[i], codes, categories, bisher, skip);
+        if (roh.length < 5) roh.push(`P${teile[i].absatz.index}: ${String(data.content)}`);
+        const e = auswerten(data.content, doc, teile[i], codes, categories, bisher);
         if (e.segmente.length) onAddSegments(e.segmente); // sofort übernehmen, damit Teilergebnisse erhalten bleiben
         bisher = [...bisher, ...(e.segmente as CodedSegment[])];
         neu += e.segmente.length;
+        if (e.leer) leer++;
         verworfen.push(...e.verworfen);
       } catch (err: any) {
         fehler = err?.message || String(err);
@@ -77,7 +78,7 @@ export const KiModal: React.FC<Props> = ({ doc, codes, categories, codedSegments
       }
     }
     setLauf(null);
-    setErgebnis({ neu, verworfen, fehler, abgebrochen: stop.current, roh });
+    setErgebnis({ neu, leer, verworfen, fehler, abgebrochen: stop.current, roh });
     // Lauf automatisch dokumentieren (Pflicht: KI-Dokumentation)
     if (i > 0)
       onAddMemo({
@@ -87,11 +88,11 @@ export const KiModal: React.FC<Props> = ({ doc, codes, categories, codedSegments
         documentId: doc.id,
         content:
           `Tool / Modell: Ollama lokal, Modell ${model}\n` +
-          `Zweck: Vorschläge für Codierungen in Interview ${doc.respondentInfo.code} (deduktiv mit dem eigenen Codesystem, inkl. Wirkung/Stärke)\n` +
-          `Umfang: ${i} von ${teile.length} Abschnitt(en)${skipCoded ? ', bereits codierte Absätze übersprungen' : ''}${stop.current ? ', manuell abgebrochen' : ''}${fehler ? `, abgebrochen wegen Fehler: ${fehler}` : ''}\n` +
-          `Ergebnis: ${neu} Vorschlag/Vorschläge übernommen (als „KI“ und „zu prüfen“ markiert), ${verworfen.length} automatisch verworfen (Zitat nicht im Text, unbekannter Code o. Ä.)\n` +
+          `Zweck: Vorschläge für Codierungen in Interview ${doc.respondentInfo.code} (deduktiv mit dem eigenen Codesystem)\n` +
+          `Umfang: ${i} von ${teile.length} Antwort(en) der befragten Person${skipCoded ? ', bereits codierte Absätze übersprungen' : ''}${stop.current ? ', manuell abgebrochen' : ''}${fehler ? `, abgebrochen wegen Fehler: ${fehler}` : ''}\n` +
+          `Ergebnis: ${neu} Vorschlag/Vorschläge übernommen (als „KI“ und „zu prüfen“ markiert), ${leer} Antwort(en) ohne passenden Code, ${verworfen.length} automatisch verworfen (unbekannter Code o. Ä.)\n` +
           `Prompt (System):\n${system}\n\n` +
-          `Prompt (je Abschnitt): Codesystem mit Definitionen + Transkript-Abschnitt mit Absatznummern\n` +
+          `Prompt (je Antwort): Frage der Interviewer:innen + Antwort der befragten Person\n` +
           `Eigene Prüfung und Korrektur: [vom Team ausfüllen – wie viele Vorschläge bestätigt, geändert, gelöscht und warum]\n` +
           `Reflexion: [vom Team ausfüllen]`,
       });
@@ -110,7 +111,7 @@ export const KiModal: React.FC<Props> = ({ doc, codes, categories, codedSegments
 
         <div className="pt-3 space-y-3 text-xs text-zinc-700 dark:text-zinc-300">
           <p>
-            Ein lokales Sprachmodell (Ollama) schlägt Textstellen mit Codes aus eurem Codesystem vor, inklusive Wirkung und Stärke. Vorschläge erscheinen
+            Ein lokales Sprachmodell (Ollama) geht jede Antwort einzeln durch und schlägt Codes aus eurem Codesystem vor. Vorschläge erscheinen
             <b> gestrichelt mit „KI ?“</b> und zählen erst nach „Prüfen & bestätigen“ als eure Codierung. Jeder Lauf wird in der KI-Dokumentation festgehalten.
           </p>
 
@@ -146,7 +147,7 @@ export const KiModal: React.FC<Props> = ({ doc, codes, categories, codedSegments
                   <span>bereits codierte Absätze überspringen</span>
                 </label>
               </div>
-              <p className="text-zinc-500">{teile.length} Abschnitt(e) à ca. 8 Antworten. Je nach Rechner dauert ein Abschnitt 10 Sekunden bis wenige Minuten.</p>
+              <p className="text-zinc-500">{teile.length} Antwort(en) werden einzeln geprüft (kurze Antworten wie „Ja.“ werden übersprungen). Je nach Rechner 5–60 Sekunden pro Antwort.</p>
               {ohneDef > 0 && <p className="text-amber-600">{ohneDef} Code(s) ohne Definition – das Modell orientiert sich an den Definitionen, ohne sie werden Vorschläge ungenauer.</p>}
               <div className="flex justify-end">
                 <button disabled={!model || teile.length === 0} onClick={starten} className="px-3.5 py-1.5 font-semibold text-white bg-violet-600 hover:bg-violet-500 disabled:opacity-40 rounded-lg cursor-pointer">
@@ -158,12 +159,12 @@ export const KiModal: React.FC<Props> = ({ doc, codes, categories, codedSegments
 
           {lauf && (
             <div className="space-y-2">
-              <div className="flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin text-violet-500" />Abschnitt {lauf.i} von {lauf.n} …</div>
+              <div className="flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin text-violet-500" />Antwort {lauf.i} von {lauf.n} …</div>
               <div className="h-1.5 rounded bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
                 <div className="h-full bg-violet-500 transition-all" style={{ width: `${((lauf.i - 1) / lauf.n) * 100}%` }} />
               </div>
               <div className="flex justify-end">
-                <button onClick={() => (stop.current = true)} className="px-3 py-1 rounded-lg border border-zinc-300 dark:border-zinc-700 cursor-pointer">Nach diesem Abschnitt anhalten</button>
+                <button onClick={() => (stop.current = true)} className="px-3 py-1 rounded-lg border border-zinc-300 dark:border-zinc-700 cursor-pointer">Anhalten</button>
               </div>
             </div>
           )}
@@ -171,7 +172,7 @@ export const KiModal: React.FC<Props> = ({ doc, codes, categories, codedSegments
           {ergebnis && (
             <div className="space-y-2">
               <p className="font-semibold">
-                {ergebnis.neu} Vorschlag/Vorschläge übernommen{ergebnis.abgebrochen ? ' (angehalten)' : ''}.
+                {ergebnis.neu} Vorschlag/Vorschläge übernommen{ergebnis.abgebrochen ? ' (angehalten)' : ''}, {ergebnis.leer} Antwort(en) ohne passenden Code.
                 {ergebnis.neu > 0 && ' Über „zu prüfen“ oben im Transkript gehst du sie durch.'}
               </p>
               {ergebnis.fehler && <p className="text-rose-600">Fehler: {ergebnis.fehler}</p>}

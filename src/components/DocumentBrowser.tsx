@@ -4,8 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { InterviewDocument, Code, Category, CodedSegment, Wirkung, WIRKUNG_LABEL, WIRKUNG_ZEICHEN } from '../types/qda';
-import { WirkungPicker, WIRKUNG_FARBE } from './WirkungPicker';
+import { InterviewDocument, Code, Category, CodedSegment } from '../types/qda';
 import {
   Search,
   Tag,
@@ -59,11 +58,8 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
   const [editCodeId, setEditCodeId] = useState<string>('');
   const [editQuote, setEditQuote] = useState<string>('');
   const [editComment, setEditComment] = useState<string>('');
-  const [editWirkung, setEditWirkung] = useState<Wirkung | undefined>();
-  const [editStaerke, setEditStaerke] = useState<1 | 2 | 3 | undefined>();
-  // Wirkung/Stärke für neue Markierungen
-  const [neuWirkung, setNeuWirkung] = useState<Wirkung | undefined>();
-  const [neuStaerke, setNeuStaerke] = useState<1 | 2 | 3 | undefined>();
+  // Kontext-Kommentar für neue Markierungen
+  const [neuKommentar, setNeuKommentar] = useState('');
   const [nurUngeprueft, setNurUngeprueft] = useState(false);
 
   // Manual Selection State
@@ -83,7 +79,6 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
 
   const codeMap = new Map(codes.map((c) => [c.id, c]));
   const catMap = new Map(categories.map((c) => [c.id, c]));
-  // Codes der Zielgröße (Zugehörigkeit) bekommen keine Wirkungsbewertung
   const istZiel = (codeId: string) => catMap.get(codeMap.get(codeId)?.categoryId || '')?.rolle === 'ziel';
   const ungeprueftImDok = codedSegments.filter((s) => s.documentId === document.id && s.geprueft === false).length;
 
@@ -152,17 +147,15 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
       exactQuote: selectedTextData.text,
       startIndex: selectedTextData.startIndex,
       endIndex: selectedTextData.endIndex,
-      comment: '',
+      comment: neuKommentar.trim(),
       confidence: 1.0,
       quelle: 'manuell',
       geprueft: true,
-      ...(!istZiel(codeId) && neuWirkung ? { wirkung: neuWirkung, staerke: neuStaerke } : {}),
     });
 
     window.getSelection()?.removeAllRanges();
     setSelectedTextData(null);
-    setNeuWirkung(undefined);
-    setNeuStaerke(undefined);
+    setNeuKommentar('');
   };
 
   const handleOpenEdit = (seg: CodedSegment, e: React.MouseEvent) => {
@@ -171,21 +164,17 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
     setEditCodeId(seg.codeId);
     setEditQuote(seg.exactQuote);
     setEditComment(seg.comment || '');
-    setEditWirkung(seg.wirkung);
-    setEditStaerke(seg.staerke);
   };
 
   // bestaetigen = Stelle gilt danach als vom Team geprüft
   const saveEdit = (bestaetigen: boolean) => {
     if (!editingSegment) return;
-    const { wirkung, staerke, ...rest } = editingSegment;
-    const ziel = istZiel(editCodeId);
+    const rest = editingSegment;
     onEditSegment({
       ...rest,
       codeId: editCodeId,
       exactQuote: editQuote.trim(),
       comment: editComment.trim(),
-      ...(!ziel && editWirkung ? { wirkung: editWirkung, ...(editWirkung !== 'neutral' && editStaerke ? { staerke: editStaerke } : {}) } : {}),
       geprueft: bestaetigen ? true : editingSegment.geprueft,
     });
     setEditingSegment(null);
@@ -249,7 +238,7 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
               className={`px-2 py-1 text-[11px] font-semibold rounded-md border cursor-pointer ${
                 nurUngeprueft ? 'bg-amber-500 text-white border-amber-500' : 'text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30'
               }`}
-              title="Vorschläge (Wirkung/Stärke oder KI-Codierungen), die noch vom Team bestätigt werden müssen"
+              title="KI-Vorschläge, die noch vom Team bestätigt werden müssen"
             >
               {nurUngeprueft ? 'Alle Stellen zeigen' : `${ungeprueftImDok} zu prüfen`}
             </button>
@@ -345,20 +334,15 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
                         borderBottom: `2.5px ${seg.geprueft === false ? 'dashed' : 'solid'} ${code?.color || '#10b981'}`,
                         color: 'inherit',
                       }}
-                      title={`Code: ${code?.name}${seg.wirkung ? ` · Wirkung: ${WIRKUNG_LABEL[seg.wirkung]}${seg.staerke ? ` (${seg.staerke})` : ''}` : ''}${
-                        seg.quelle === 'ki' ? ' · KI-Vorschlag' : ''
-                      }${seg.geprueft === false ? ' · noch nicht geprüft' : ''} · Klicke zum Bearbeiten`}
+                      title={`Code: ${code?.name}${seg.quelle === 'ki' ? ' · KI-Vorschlag' : ''}${
+                        seg.geprueft === false ? ' · noch nicht geprüft' : ''
+                      }${seg.comment ? `\nKontext: ${seg.comment}` : ''}\nKlicke zum Bearbeiten`}
                     >
                       {seg.exactQuote}
-                      {(seg.wirkung || seg.geprueft === false || seg.quelle === 'ki') && (
+                      {(seg.comment || seg.geprueft === false || seg.quelle === 'ki') && (
                         <sup className="ml-0.5 select-none text-[9px] font-bold whitespace-nowrap">
                           {seg.quelle === 'ki' && <span className="text-violet-500">KI </span>}
-                          {seg.wirkung && (
-                            <span style={{ color: WIRKUNG_FARBE[seg.wirkung] }}>
-                              {WIRKUNG_ZEICHEN[seg.wirkung]}
-                              {seg.staerke || ''}
-                            </span>
-                          )}
+                          {seg.comment && <span className="text-sky-500" title={seg.comment}> ✎</span>}
                           {seg.geprueft === false && <span className="text-amber-500">?</span>}
                         </sup>
                       )}
@@ -518,9 +502,14 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
             </>
           )}
 
-          {effectiveCodeId !== NEW && !istZiel(effectiveCodeId) && (
-            <WirkungPicker compact wirkung={neuWirkung} staerke={neuStaerke} onChange={(w, st) => { setNeuWirkung(w); setNeuStaerke(st); }} />
-          )}
+          <input
+            value={neuKommentar}
+            onChange={(e) => setNeuKommentar(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleApplyManualCode()}
+            placeholder="Kontext (optional)"
+            title="Kommentar zur Stelle, z. B. worauf sich „das“ bezieht oder was vorher gefragt wurde"
+            className="px-2 py-1 text-xs rounded-md bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 w-40"
+          />
 
           <button
             onClick={handleApplyManualCode}
@@ -574,16 +563,6 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
                 </select>
               </div>
 
-              {!istZiel(editCodeId) ? (
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                    Wirkung auf die Zugehörigkeit · Stärke (1 gering – 3 stark)
-                  </label>
-                  <WirkungPicker wirkung={editWirkung} staerke={editStaerke} onChange={(w, st) => { setEditWirkung(w); setEditStaerke(st); }} />
-                </div>
-              ) : (
-                <p className="text-[11px] text-zinc-400">Code der Zielgröße (Zugehörigkeit) – ohne Wirkungsbewertung.</p>
-              )}
 
               {(editingSegment.geprueft === false || editingSegment.quelle === 'ki') && (
                 <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 text-[11px] text-amber-800 dark:text-amber-200">
@@ -606,12 +585,13 @@ export const DocumentBrowser: React.FC<DocumentBrowserProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                  Analytisches Memo / Kommentar
+                  Kommentar / Kontext
                 </label>
-                <input
-                  type="text"
+                <textarea
+                  rows={3}
                   value={editComment}
                   onChange={(e) => setEditComment(e.target.value)}
+                  placeholder="z. B. worauf sich die Aussage bezieht, was vorher gefragt wurde, Ironie, Unsicherheit beim Codieren …"
                   className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100"
                 />
               </div>

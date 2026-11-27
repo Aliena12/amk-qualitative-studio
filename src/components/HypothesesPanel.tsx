@@ -30,7 +30,7 @@ export const HypothesesPanel: React.FC<Props> = ({ hypotheses, categories, codes
   const nInterviews = (codeIds: string[]) => new Set(segsOf(codeIds).map((s) => s.documentId)).size;
 
   const openNew = () =>
-    setEditing({ label: `H${hypotheses.length + 1}`, statement: '', reasoning: '', variables: '', codeIds: [] });
+    setEditing({ label: `H${hypotheses.length + 1}`, statement: '', reasoning: '', wirktAuf: '', codeIds: [] });
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +40,7 @@ export const HypothesesPanel: React.FC<Props> = ({ hypotheses, categories, codes
       label: (editing.label || '').trim() || `H${hypotheses.length + 1}`,
       statement: editing.statement.trim(),
       reasoning: (editing.reasoning || '').trim(),
-      variables: (editing.variables || '').trim(),
+      wirktAuf: (editing.wirktAuf || '').trim(),
       codeIds: editing.codeIds,
     });
     setEditing(null);
@@ -89,7 +89,7 @@ export const HypothesesPanel: React.FC<Props> = ({ hypotheses, categories, codes
                   </div>
                 </div>
                 {h.reasoning && <p className="text-xs text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed"><b>Herleitung: </b>{h.reasoning}</p>}
-                {h.variables && <p className="text-xs text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed"><b>Variablen / Konstrukte: </b>{h.variables}</p>}
+                {h.wirktAuf && <p className="text-xs text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed"><b>Wirkt auf: </b>{h.wirktAuf}</p>}
                 <div className="flex flex-wrap items-center gap-1.5 pt-1">
                   {hc.map((c) => (
                     <span key={c.id} className="text-[10px] px-2 py-0.5 rounded-full border border-zinc-200 dark:border-zinc-700" style={{ borderLeft: `3px solid ${c.color}` }}>{c.name}</span>
@@ -123,8 +123,18 @@ export const HypothesesPanel: React.FC<Props> = ({ hypotheses, categories, codes
                 <textarea rows={3} value={editing.reasoning || ''} onChange={(e) => setEditing({ ...editing, reasoning: e.target.value })} className={inputCls} />
               </div>
               <div>
-                <label className={labelCls}>Variablen / Konstrukte (für die spätere Operationalisierung)</label>
-                <textarea rows={2} value={editing.variables || ''} onChange={(e) => setEditing({ ...editing, variables: e.target.value })} className={inputCls} />
+                <label className={labelCls}>Wirkt auf</label>
+                <input
+                  list="wirkt-auf-vorschlaege"
+                  value={editing.wirktAuf || ''}
+                  onChange={(e) => setEditing({ ...editing, wirktAuf: e.target.value })}
+                  placeholder="z. B. Zugehörigkeit zur Fakultät, Präsenz vor Ort"
+                  className={inputCls}
+                />
+                {/* Vorschläge: Codes und Kategorien der Zielgröße */}
+                <datalist id="wirkt-auf-vorschlaege">
+                  {categories.filter((k) => k.rolle === 'ziel').flatMap((k) => [k.name, ...codes.filter((c) => c.categoryId === k.id).map((c) => c.name)]).map((n) => <option key={n} value={n} />)}
+                </datalist>
               </div>
               <div>
                 <label className={labelCls}>Zugrunde liegende Codes ({editing.codeIds.length} gewählt)</label>

@@ -3,59 +3,80 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Category, Code, CodedSegment, InterviewDocument, Paragraph, Wirkung } from '../types/qda';
+import { Category, Code, CodedSegment, InterviewDocument, Paragraph } from '../types/qda';
 
-// Codevorschläge über lokales Ollama: Prompt bauen, Antwort prüfen, in Textstellen umwandeln.
+// Codevorschläge über lokales Ollama. Das Modell bekommt EINE Antwort der befragten Person (mit der Frage davor)
+// und entscheidet nur, welche Codes passen. Kleine Modelle wie llama3 kommen damit viel besser zurecht als mit langen Abschnitten.
 
-export const KI_SYSTEM = (frage: string) => `Du unterstützt eine qualitative Inhaltsanalyse (deduktives Codieren) von Interviews mit Studierenden.
-Forschungsfrage: ${frage || 'Welche Begebenheiten stärken oder schwächen die Zugehörigkeit zur Fakultät?'}
-Kausalmodell: Begebenheiten an Hochschule/Fakultät → Wirkung auf die Zugehörigkeit bzw. Identifikation mit Fakultät und Studiengang.
+// Systemanweisung inkl. Codesystem: bleibt für alle Anfragen gleich (Ollama kann sie zwischenspeichern)
+export const KI_SYSTEM = (frage: string, liste: string) => `Du hilfst beim Codieren von Interviews mit Studierenden (qualitative Inhaltsanalyse).
+Thema: ${frage || 'Was stärkt oder schwächt die Zugehörigkeit der Studierenden zu ihrer Fakultät?'}
+
+Du bekommst eine Frage und die ANTWORT einer befragten Person. Prüfe, welche Codes aus der Liste auf die ANTWORT passen.
+
+Codesystem (Nummer | Name [Kategorie]: Definition):
+${liste}
 
 Regeln:
-- Codiere NUR Absätze, die mit [B] (befragte Person) markiert sind. [I]-Absätze sind nur Kontext.
-- "code": die Code-Nummer aus der Liste (z. B. "C3").
-- "zitat" ist ein WÖRTLICHER, zusammenhängender Ausschnitt aus dem Absatz (ein bis drei Sätze), ohne Änderungen.
-- "wirkung": wie die beschriebene Begebenheit auf die Zugehörigkeit wirkt: "staerkt", "schwaecht", "ambivalent" oder "neutral". Bei Codes der Zielgröße: null.
-- "staerke": 1 (gering), 2 (mittel) oder 3 (stark); bei neutral oder Zielgröße: null.
-- "begruendung": ein kurzer Satz, warum der Code passt.
-- Lieber weniger, aber treffende Vorschläge. Wenn nichts passt: leere Liste.
-Antworte ausschließlich mit JSON in dieser Form:
-{"vorschlaege":[{"absatz":12,"zitat":"...","code":"C3","wirkung":"schwaecht","staerke":2,"begruendung":"..."}]}`;
+- Nur Codes aus der Liste, angegeben mit ihrer Nummer, z. B. "C4". Höchstens 2 Codes.
+- "zitat": der passende Satz aus der Antwort, wörtlich abgeschrieben.
+- "begruendung": ein kurzer Satz.
+- Wenn kein Code passt (z. B. Smalltalk, Organisatorisches): leere Liste.
+
+Beispiel für eine Antwort im richtigen Format:
+{"codes":[{"code":"C4","zitat":"Wir waren nur 20 Leute, da war es einfach, Kontakte zu knüpfen.","begruendung":"Kleine Gruppe erleichtert Kontakt."}]}
+Ohne Treffer: {"codes":[]}`;
+
+// JSON-Schema: zwingt das Modell (Ollama ab Version 0.5) in genau diese Struktur
+export const KI_FORMAT = {
+  type: 'object',
+  properties: {
+    codes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          code: { type: 'string' },
+          zitat: { type: 'string' },
+          begruendung: { type: 'string' },
+        },
+        required: ['code', 'zitat'],
+      },
+    },
+  },
+  required: ['codes'],
+};
 
 export function codeListe(codes: Code[], categories: Category[]) {
   const cat = new Map(categories.map((c) => [c.id, c]));
   return codes
     .map((c, i) => {
       const k = cat.get(c.categoryId);
-      return `C${i + 1} | ${c.name} [${k?.name ?? '?'}${k?.rolle === 'ziel' ? ', Zielgröße' : ''}]: ${c.description || 'ohne Definition'}`;
+      return `C${i + 1} | ${c.name} [${k?.name ?? '?'}]: ${c.description || 'ohne Definition'}`;
     })
     .join('\n');
 }
 
-export const KI_PROMPT = (liste: string, absaetze: Paragraph[]) =>
-  `Codesystem:\n${liste}\n\nTranskript-Abschnitt:\n${absaetze
-    .map((p) => `P${p.index} [${p.speaker === 'Befragter' ? 'B' : 'I'}]: ${p.text}`)
-    .join('\n')}`;
-
-// Abschnitte bilden: je ca. 8 Absätze der befragten Person, mit den Fragen davor als Kontext
-export function abschnitte(doc: InterviewDocument, ueberspringen: Set<number>, groesse = 8): Paragraph[][] {
-  const out: Paragraph[][] = [];
-  let cur: Paragraph[] = [];
-  let nB = 0;
-  for (const p of doc.paragraphs) {
-    if (p.speaker === 'System') continue;
-    cur.push(p);
-    if (p.speaker === 'Befragter' && !ueberspringen.has(p.index)) nB++;
-    if (nB >= groesse && p.speaker === 'Befragter') {
-      out.push(cur);
-      cur = [];
-      nB = 0;
-    }
-  }
-  if (nB > 0) out.push(cur);
-  // Abschnitte ohne codierbare Absätze entfallen
-  return out.filter((a) => a.some((p) => p.speaker === 'Befragter' && !ueberspringen.has(p.index)));
+// Eine Einheit = eine Antwort der befragten Person + die letzte Frage davor als Kontext
+export interface Einheit {
+  absatz: Paragraph;
+  frage?: Paragraph;
 }
+
+export function einheiten(doc: InterviewDocument, ueberspringen: Set<number>, minWoerter = 8): Einheit[] {
+  const out: Einheit[] = [];
+  let frage: Paragraph | undefined;
+  for (const p of doc.paragraphs) {
+    if (p.speaker === 'Interviewer') frage = p;
+    if (p.speaker !== 'Befragter' || ueberspringen.has(p.index)) continue;
+    if (p.text.split(/\s+/).length < minWoerter) continue; // „Ja.“, „Genau.“ usw. überspringen
+    out.push({ absatz: p, frage });
+  }
+  return out;
+}
+
+export const KI_PROMPT = (e: Einheit) =>
+  `${e.frage ? `FRAGE: ${e.frage.text}\n\n` : ''}ANTWORT (Absatz P${e.absatz.index}): ${e.absatz.text}`;
 
 // Zitat im Absatz finden: exakt, sonst tolerant gegenüber Leerzeichen, Anführungszeichen und Groß-/Kleinschreibung
 export function findeZitat(text: string, zitat: string): { start: number; end: number } | null {
@@ -103,7 +124,9 @@ function aehnlicheStelle(text: string, zitat: string): { start: number; end: num
   const saetze: { start: number; end: number }[] = [];
   const re = /[^.!?]+[.!?]*/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) if (m[0].trim()) saetze.push({ start: m.index, end: m.index + m[0].length });
+  // Pausen-Markierungen wie „(.)“ oder „(..)“ sind kein Satzende; gleich lang ersetzen, damit die Positionen stimmen
+  const ohnePausen = text.replace(/\((\.+)\)/g, (x) => '(' + '·'.repeat(x.length - 2) + ')');
+  while ((m = re.exec(ohnePausen))) if (m[0].trim()) saetze.push({ start: m.index, end: m.index + m[0].length });
   let best: { start: number; end: number; score: number } | null = null;
   for (let i = 0; i < saetze.length; i++)
     for (let k = i; k < Math.min(saetze.length, i + 3); k++) {
@@ -120,21 +143,19 @@ function aehnlicheStelle(text: string, zitat: string): { start: number; end: num
 export interface KiErgebnis {
   segmente: Omit<CodedSegment, 'id'>[];
   verworfen: { grund: string; zitat: string }[];
+  leer: boolean; // Modell hat keinen Code vergeben
 }
 
-const WIRKUNGEN: Wirkung[] = ['staerkt', 'schwaecht', 'ambivalent', 'neutral'];
-
-// Antwort des Modells prüfen und in ungeprüfte Textstellen übersetzen
+// Antwort des Modells für EINEN Absatz prüfen und in ungeprüfte Textstellen übersetzen
 export function auswerten(
   antwort: string,
   doc: InterviewDocument,
-  abschnitt: Paragraph[],
+  e: Einheit,
   codes: Code[],
   categories: Category[],
-  vorhanden: CodedSegment[],
-  ueberspringen: Set<number>
+  vorhanden: CodedSegment[]
 ): KiErgebnis {
-  const res: KiErgebnis = { segmente: [], verworfen: [] };
+  const res: KiErgebnis = { segmente: [], verworfen: [], leer: false };
   let data: any;
   try {
     data = JSON.parse(antwort);
@@ -143,69 +164,50 @@ export function auswerten(
     return res;
   }
   // Das Modell benennt die Liste manchmal anders: erstes Array in der Antwort nehmen
-  const liste: any[] = Array.isArray(data?.vorschlaege)
-    ? data.vorschlaege
+  const liste: any[] = Array.isArray(data?.codes)
+    ? data.codes
     : Array.isArray(data)
       ? data
-      : (Object.values(data || {}).find(Array.isArray) as any[]) || (data?.zitat ? [data] : []);
-  const zielCats = new Set(categories.filter((c) => c.rolle === 'ziel').map((c) => c.id));
-  const erlaubt = new Set(abschnitt.filter((p) => p.speaker === 'Befragter' && !ueberspringen.has(p.index)).map((p) => p.index));
+      : (Object.values(data || {}).find(Array.isArray) as any[]) || (data?.code ? [data] : []);
+  if (liste.length === 0) res.leer = true;
 
-  for (const v of liste) {
+  const zielCats = new Set(categories.filter((c) => c.rolle === 'ziel').map((c) => c.id));
+  const para = e.absatz;
+  for (const v of liste.slice(0, 3)) {
     const zitat = String(v?.zitat ?? v?.quote ?? v?.text ?? '');
-    const angegeben = Number(String(v?.absatz ?? v?.paragraph ?? '').replace(/\D/g, ''));
-    const code = findeCode(v?.code ?? v?.codename, codes);
+    const code = findeCode(v?.code ?? v?.name, codes);
     if (!code) {
       res.verworfen.push({ grund: `unbekannter Code „${v?.code}“`, zitat });
       continue;
     }
-    // Zitat suchen: zuerst im angegebenen Absatz, dann in allen codierbaren Absätzen des Abschnitts
-    const kandidaten = [angegeben, ...[...erlaubt].filter((x) => x !== angegeben)].filter((x) => erlaubt.has(x));
-    let absatz = -1;
-    let pos: { start: number; end: number } | null = null;
-    let angepasst = false;
-    for (const k of kandidaten) {
-      pos = findeZitat(doc.paragraphs.find((p) => p.index === k)!.text, zitat);
-      if (pos) {
-        absatz = k;
-        break;
-      }
+    // Zitat im Absatz suchen: wörtlich, dann ähnlichster Satz, sonst ganzer Absatz (das Modell hat den Absatz ja als passend erkannt)
+    let pos: { start: number; end: number } | null = findeZitat(para.text, zitat);
+    let hinweis = '';
+    if (!pos) {
+      pos = aehnlicheStelle(para.text, zitat);
+      if (pos) hinweis = ' (Zitat auf Transkriptsatz angepasst)';
     }
     if (!pos) {
-      let best: { start: number; end: number; score: number } | null = null;
-      for (const k of kandidaten) {
-        const t = aehnlicheStelle(doc.paragraphs.find((p) => p.index === k)!.text, zitat);
-        if (t && (!best || t.score > best.score)) (best = t), (absatz = k);
-      }
-      if (best) (pos = best), (angepasst = true);
+      pos = { start: 0, end: para.text.length };
+      hinweis = ' (ganzer Absatz markiert – bitte zuschneiden)';
     }
-    if (!pos) {
-      res.verworfen.push({ grund: `Zitat nicht im Transkript gefunden (angegeben P${angegeben || '?'})`, zitat });
-      continue;
-    }
-    const para = doc.paragraphs.find((p) => p.index === absatz)!;
     const exact = para.text.slice(pos.start, pos.end).trim();
     const start = para.text.indexOf(exact, pos.start);
-    pos = { start, end: start + exact.length };
+    const end = start + exact.length;
     const doppelt = [...vorhanden, ...res.segmente].some(
-      (s) => s.documentId === doc.id && s.paragraphIndex === absatz && s.codeId === code.id && s.startIndex < pos.end && pos.start < s.endIndex
+      (s) => s.documentId === doc.id && s.paragraphIndex === para.index && s.codeId === code.id && s.startIndex < end && start < s.endIndex
     );
     if (doppelt) continue;
-    const ziel = zielCats.has(code.categoryId);
-    const w: Wirkung | undefined = !ziel && WIRKUNGEN.includes(v?.wirkung) ? v.wirkung : undefined;
-    const st = Number(v?.staerke);
     res.segmente.push({
       documentId: doc.id,
       codeId: code.id,
-      paragraphIndex: absatz,
+      paragraphIndex: para.index,
       exactQuote: exact,
-      startIndex: pos.start,
-      endIndex: pos.end,
-      comment: `KI${angepasst ? ' (Zitat auf Transkriptsatz angepasst)' : ''}: ${String(v?.begruendung ?? '').slice(0, 200)}`.replace(/: $/, ''),
+      startIndex: start,
+      endIndex: end,
+      comment: `KI${hinweis}: ${String(v?.begruendung ?? '').slice(0, 200)}`.replace(/: $/, ''),
       quelle: 'ki',
       geprueft: false,
-      ...(w ? { wirkung: w } : {}),
-      ...(w && w !== 'neutral' && [1, 2, 3].includes(st) ? { staerke: st as 1 | 2 | 3 } : {}),
     });
   }
   return res;

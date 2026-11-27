@@ -61,7 +61,12 @@ export function normalizeProject(raw: any): { project: QdaProject; changed: bool
     description: raw.description || '',
     courseModule: raw.courseModule || '',
     memos: Array.isArray(raw.memos) ? raw.memos : [],
-    hypotheses: Array.isArray(raw.hypotheses) ? raw.hypotheses : [],
+    // Hypothesen: früheres Feld "Variablen / Konstrukte" entfällt; Inhalt wandert in die Herleitung, neu ist "wirkt auf"
+    hypotheses: (Array.isArray(raw.hypotheses) ? raw.hypotheses : []).map(({ variables, ...h }: any) => ({
+      ...h,
+      wirktAuf: h.wirktAuf ?? '',
+      reasoning: variables?.trim() ? `${h.reasoning || ''}${h.reasoning ? '\n' : ''}Variablen/Konstrukte: ${variables.trim()}` : h.reasoning || '',
+    })),
     documents: raw.documents.map((d: any) => ({
       ...d,
       title: d.title || d.respondentInfo?.code || 'Interview',
@@ -77,6 +82,11 @@ export function normalizeProject(raw: any): { project: QdaProject; changed: bool
   }
   // Automatischer Platzhalter-Kommentar "Händisch codiert" ist keine eigene Notiz
   p = { ...p, codedSegments: p.codedSegments.map((s) => (s.comment === 'Händisch codiert' ? { ...s, comment: '' } : s)) };
+  // Wirkung/Stärke werden nicht mehr bewertet: eigene (manuelle) Codierungen sind damit nicht mehr „zu prüfen“; nur KI-Vorschläge bleiben offen
+  p = {
+    ...p,
+    codedSegments: p.codedSegments.map(({ wirkung, staerke, ...s }) => (s.quelle !== 'ki' && s.geprueft === false ? { ...s, geprueft: true } : s)),
+  };
 
   p = syncProject(p);
   return { project: p, changed: JSON.stringify(p) !== before };

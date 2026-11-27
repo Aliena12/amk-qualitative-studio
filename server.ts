@@ -98,27 +98,31 @@ app.get('/api/ki/status', async (_req: Request, res: Response) => {
 // Ein Abschnitt des Transkripts an das Modell schicken und die JSON-Antwort zurückgeben.
 // Prüfung der Zitate passiert im Browser (dort liegen Absätze und Codes).
 app.post('/api/ki/vorschlaege', async (req: Request, res: Response) => {
-  const { model, system, prompt } = req.body || {};
+  const { model, system, prompt, format } = req.body || {};
   if (!model || !system || !prompt) {
     res.status(400).json({ error: 'model, system und prompt erforderlich' });
     return;
   }
-  try {
-    const r = await fetch(`${OLLAMA}/api/chat`, {
+  // format: JSON-Schema (erzwingt die Antwortstruktur); ältere Ollama-Versionen kennen nur 'json'
+  const anfrage = (fmt: unknown) =>
+    fetch(`${OLLAMA}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model,
         stream: false,
-        format: 'json',
+        format: fmt,
         options: { temperature: 0.1, num_ctx: 8192 },
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: prompt },
         ],
       }),
-      signal: AbortSignal.timeout(5 * 60 * 1000), // langsame Rechner: bis 5 Minuten je Abschnitt
+      signal: AbortSignal.timeout(5 * 60 * 1000), // langsame Rechner: bis 5 Minuten je Anfrage
     });
+  try {
+    let r = await anfrage(format || 'json');
+    if (!r.ok && format) r = await anfrage('json');
     if (!r.ok) {
       res.status(502).json({ error: `Ollama antwortet mit Status ${r.status}: ${await r.text()}` });
       return;

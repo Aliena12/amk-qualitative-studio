@@ -72,7 +72,7 @@ export interface CodedSegment {
   comment?: string;
   confidence?: number;
   wirkung?: Wirkung; // Richtung des Einflusses auf die Zugehörigkeit
-  staerke?: 1 | 2 | 3; // Schwere: 1 gering, 2 mittel, 3 stark
+  staerke?: 1 | 2 | 3; // veraltet (frühere Abstufung), wird nicht mehr ausgewertet
   geprueft?: boolean; // false = Vorschlag (z. B. von KI), noch nicht vom Team bestätigt
   quelle?: 'manuell' | 'ki'; // wer die Stelle codiert hat
 }
@@ -95,7 +95,7 @@ export interface Hypothesis {
   label: string; // z. B. "H1"
   statement: string; // die Hypothese selbst
   reasoning: string; // Herleitung aus dem Interviewmaterial
-  variables: string; // Variablen / Konstrukte für die Operationalisierung
+  wirktAuf: string; // worauf die Begebenheit wirkt (z. B. Zugehörigkeit, Präsenz)
   codeIds: string[]; // zugrunde liegende Codes (Kette Interview → Kategorien → Hypothese)
   createdAt: string;
 }
